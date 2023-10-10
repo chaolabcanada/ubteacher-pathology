@@ -1,0 +1,4 @@
+##lines are as follows: train images, train labels, test images, test labels
+/home/chao_lab/tissue_finder_other_2560/BCCan_OC/H03320130729AI7_0.npy, /home/chao_lab/tissue_finder_other_2560/BCCan_OC/H01620120627G01_1.npy
+
+C002111003F01_0.npy, C002111003F01_1.npy
