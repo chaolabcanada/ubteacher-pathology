@@ -121,14 +121,14 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
             dict: a format that builtin models in detectron2 accept
         """
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
-        if isnumpy:
+        if self.isnumpy:
             image = np.load(dataset_dict["file_name"]) #np.load instead
         else:
             image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
             
 
         if "sem_seg_file_name" in dataset_dict:
-            if isnumpy:
+            if self.isnumpy:
                 sem_seg_gt = np.load(dataset_dict.pop("sem_seg_file_name"))
             else:
                 sem_seg_gt = utils.read_image(
