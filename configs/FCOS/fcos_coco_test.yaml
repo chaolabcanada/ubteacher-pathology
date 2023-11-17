@@ -1,4 +1,4 @@
-_BASE_: "../Base-FCOS.yaml"
+_BASE_: "../FCOS/Base-FCOS.yaml"
 MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
@@ -16,11 +16,9 @@ MODEL:
     KL_LOSS: True
     KLLOSS_WEIGHT: 0.05
     KL_LOSS_TYPE: "nlloss"
-INPUT:
-  MIN_SIZE_TRAIN: (800,)
 SOLVER:
-  IMG_PER_BATCH_LABEL: 8
-  IMG_PER_BATCH_UNLABEL: 8
+  IMG_PER_BATCH_LABEL: 6
+  IMG_PER_BATCH_UNLABEL: 6
   BASE_LR: 0.01
   STEPS: (180000,)
   MAX_ITER: 180000
@@ -63,6 +61,6 @@ TEST:
 INPUT:
   MIN_SIZE_TRAIN: (400, 1200)
   MIN_SIZE_TRAIN_SAMPLING: "range"
-NUMPY: True
+NUMPY: False
 PARENTDIR: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/datasets/coco
 DATASEED: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/dataseed/COCO_FCOS_Testing
