@@ -16,8 +16,7 @@ from ubteacher.modeling import *
 from ubteacher.engine import *
 from ubteacher.engine.trainer import UBTeacherTrainer, UBRCNNTeacherTrainer, BaselineTrainer
 from ubteacher import add_ubteacher_config
-from ubteacher.utils.ROI_utils import (TrainUtil, 
-                                       TrainHelper, 
+from ubteacher.utils.ROI_utils import (TrainHelper, 
                                        get_categorical_map, 
                                        get_annotypes_for_dataset)
 
@@ -57,18 +56,19 @@ def main(args):
             for i in labeled_dset_selection.split(",")
         ]
         
-    unlabeled_dset_selection = input(
-        "Enter the names of unlabeled datasets you want to train with"
-        + "(comma separated, or 'none' to train with nothing):")
-    if 'none' in unlabeled_dset_selection.lower():
-        unlabeled_dataset_names = []
-    else:
-        unlabeled_dataset_names = [
-            i.strip()
-            for i in unlabeled_dset_selection.split(",")
-        ]
-        
     data_train_labeled, data_val = TrainHelper().split_dataset(cfg, labeled_dataset_names, args, set_seed=True)
+    
+    if cfg.DATASETS.CROSS_DATASET:
+        unlabeled_dset_selection = input(
+            "Enter the names of unlabeled datasets you want to train with"
+            + "(comma separated, or 'none' to train with nothing):")
+        if 'none' in unlabeled_dset_selection.lower():
+            unlabeled_dataset_names = []
+        else:
+            unlabeled_dataset_names = [
+                i.strip()
+                for i in unlabeled_dset_selection.split(",")
+            ]
     
     if cfg.DATASETS.CROSS_DATASET:
         print('Using unlabeled datasets for training')
@@ -81,8 +81,7 @@ def main(args):
                     }
     else:
         datasets = {"train": data_train_labeled, "val": data_val}
-
-    
+        
     global_annotypes = set()
     dset_annotypes = get_annotypes_for_dataset(data_train_labeled)
     global_annotypes.update(dset_annotypes)
