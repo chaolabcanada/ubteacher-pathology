@@ -20,21 +20,18 @@ The IEEE / CVF Computer Vision and Pattern Recognition Conference (CVPR), 2022 <
 - More streamlined fully supervised training
 
 # Work in progress
-- Trying to make an effective inference pipeline
-- Working on evaluation logic and model loading
-- Moving away from hacking detectron2 to work with more image formats
+- Direct support for varied ground truths from config
+- Inference pipeline script for batching predictions on unseen data
+- Intermediate quality control on augmentations / elimination of junk data
 
 # To Do
-- Implement Mask-RCNN
+- Implement support for mask head in Mask-RCNN
 - Support different dataset structures
-- Remove temporary debugging hacks & hardcoding
+- Create a more descriptive logger to describe training flow
 
 # Feature wishlist
-- Implement Mask-RCNN
 - Transparency as to which data are being loaded at a given time
 - Overfitting prevention
 - Better visualizer during eval.
   
-
-
 This project is licensed under [MIT License](LICENSE), as found in the LICENSE file.
