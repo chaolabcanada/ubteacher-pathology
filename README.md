@@ -28,6 +28,8 @@ The IEEE / CVF Computer Vision and Pattern Recognition Conference (CVPR), 2022 <
 - Implement support for mask head in Mask-RCNN
 - Support different dataset structures
 - Create a more descriptive logger to describe training flow
+- Reduce box-in-a-box predictions
+- Support for rotated bboxes (potentially)
 
 # Feature wishlist
 - Transparency as to which data are being loaded at a given time
