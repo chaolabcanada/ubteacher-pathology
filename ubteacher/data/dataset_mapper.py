@@ -16,40 +16,7 @@ import time
 from detectron2.data.dataset_mapper import DatasetMapper
 from PIL import Image
 from ubteacher.data.detection_utils import build_strong_augmentation
-
-
-#HACKED: Visualization
-
-def vis_image_with_annos(image, annotations, output):
-    fig, ax = plt.subplots()
-    ax.imshow(image)
-    for anno in annotations:
-        #plot bbox
-        x1, y1, x2, y2 = anno['bbox']
-        w = x2 - x1
-        h = y2 - y1
-        rect = patches.Rectangle(
-            (x1, y1),
-            w, h,
-            linewidth=1,
-            edgecolor='r',
-            facecolor='none'
-        )
-        ax.add_patch(rect)
-        ax.annotate(f"class_ID={anno['category_id']}", (x1, y1), color='b')
-        #plot poly
-        x_coords = anno['segmentation'][0][::2]
-        y_coords = anno['segmentation'][0][1::2]
-        ax.plot(x_coords, y_coords, color='g')
-    fig.savefig(output)
-    plt.close()
-
-def write_batch(batch, output_dir):
-    batch.append(time.time())
-    # write json
-    json_file = os.path.join(output_dir, 'batch_log.json')
-    with open(json_file, 'w') as f:
-        json.dump(batch, f)        
+from utils.utils import vis_image_with_annos #TODO: Use this to visualize the dataset for debugging
     
 class DatasetMapperTwoCropSeparate(DatasetMapper):
     
