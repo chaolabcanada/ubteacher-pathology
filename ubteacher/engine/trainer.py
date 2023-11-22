@@ -31,7 +31,7 @@ from ubteacher.data.build import (
     build_detection_semisup_train_loader_two_crops,
     build_detection_test_loader,
 )
-from ubteacher.utils.utils_v1 import DatasetMapperTwoCropSeparateV1
+from utils.utils import DatasetMapperTwoCropSeparateV1
 from ubteacher.data.dataset_mapper import DatasetMapperTwoCropSeparate
 from ubteacher.evaluation.evaluator import inference_on_dataset
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
