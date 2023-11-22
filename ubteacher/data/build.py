@@ -110,10 +110,6 @@ def build_detection_semisup_train_loader(cfg, mapper):
 
 # uesed by evaluation
 def build_detection_test_loader(cfg, dataset_name, mapper=None):
-    if cfg.NUMPY:
-        mapper = create_test_mapper(cfg) # This allows npy inputs as it bypasses torch mapper
-    else:
-        mapper = None
     dataset_dicts = get_detection_dataset_dicts(
         [dataset_name],
         filter_empty=False,
