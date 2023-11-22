@@ -48,6 +48,29 @@ from ubteacher.solver.build import build_lr_scheduler
 
 ### Section 1: Data Processing and Loading ###
 
+def find_anno_dir(parent_dir: str) -> List[str]:
+    """
+    Find qupath exported annotations directory
+    """
+    
+    if os.path.exists(os.path.join(parent_dir, 'xupath_annotations_latest')):
+        return os.path.join(parent_dir, 'qupath_annotations_latest')
+    else:
+        anno_dirs = []
+        for root, dirs, files in os.walk(parent_dir):
+            for d in dirs:
+                if 'annotations' in d:
+                    anno_dirs.append(os.path.join(root, d))
+        # user chooses if there are multiple annotation folders
+        print('Found multiple annotation folders:')
+        for i, anno_dir in enumerate(anno_dirs):
+            print(f'{i}: {os.path.relpath(anno_dir, parent_dir)}')
+        choice = input('Choose annotation folder index')
+        if choice.isdigit() and int(choice) < len(anno_dirs):
+            return anno_dirs[int(choice)]    
+        else:
+            raise ValueError('Annotation folder not found')
+
 def channel_last(input: np.ndarray or tuple) -> np.ndarray or tuple:
     """Return the input in channel-last format
     Args:
