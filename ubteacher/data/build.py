@@ -22,19 +22,10 @@ from detectron2.data.samplers import (
 from detectron2.utils.comm import get_world_size
 from detectron2.utils.file_io import PathManager
 from ubteacher.data.common import AspectRatioGroupedSemiSupDatasetTwoCrop
-from ubteacher.utils.ROI_utils import TrainUtil
 
 """
 This file contains the default logic to build a dataloader for training or testing.
 """
-
-
-# Specify custommapper for ROI detection - only test is used currently
-def create_train_mapper(cfg):
-    return TrainUtil(cfg.INPUT.MAX_SIZE_TRAIN).custom_mapper
-
-def create_test_mapper(cfg):
-    return TrainUtil(cfg.INPUT.MAX_SIZE_TEST).test_mapper
    
 
 def divide_label_unlabel(
