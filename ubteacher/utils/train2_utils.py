@@ -24,52 +24,60 @@ def select_annotypes(anno_dir: str) -> List[str]:
             except:
                 pass
     print(f'Found {set(possible_tissues)} tissue types with valid annotations')
-    selected_tissues = input('Select tissue types to train on (comma separated)')
-    tissue_types = selected_tissues.split(',')
+    selected_tissues = input('Select tissue types to train on (comma separated): \n')
+    tissue_types = selected_tissues.split(', ')
     print(f'Selected tissue types: {tissue_types}')
     annotypes.extend(tissue_types)
     return annotypes
         
-def find_anno_dir(parent_dir: str) -> List[str]:
+def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     """
     Find qupath exported annotations directory
     """
     
-    if os.path.exists(os.path.join(parent_dir, 'xupath_annotations_latest')):
-        return os.path.join(parent_dir, 'qupath_annotations_latest')
+    # Select anno_subdir
+    
+    if os.path.exists(os.path.join(anno_parent, 'qupath_annotations_latest')):
+        print('Automatically chose qupath_annotations_latest folder')
+        anno_subdir = os.path.join(anno_parent, 'qupath_annotations_latest')
     else:
         anno_dirs = []
-        for root, dirs, files in os.walk(parent_dir):
+        for root, dirs, files in os.walk(anno_parent):
             for d in dirs:
                 if 'annotations' in d:
                     anno_dirs.append(os.path.join(root, d))
         # user chooses if there are multiple annotation folders
         print('Found multiple annotation folders:')
         for i, anno_dir in enumerate(anno_dirs):
-            print(f'{i}: {os.path.relpath(anno_dir, parent_dir)}')
-        choice = input('Choose annotation folder index')
+            print(f'{i}: {os.path.relpath(anno_dir, anno_parent)}')
+        choice = input('Choose annotation folder index: \n')
         if choice.isdigit() and int(choice) < len(anno_dirs):
-            return anno_dirs[int(choice)]    
+            anno_subdir = str(anno_dirs[int(choice)]) 
         else:
             raise ValueError('Annotation folder not found')
         
-def find_img_dir(parent_dir: str) -> List[str]:
-    """
-    Find npy image directory for training
-    """
     img_dirs = []
-    for root, dirs, files in os.walk(parent_dir):
+    for root, dirs, files in os.walk(img_parent):
         for d in dirs:
             if glob.glob(os.path.join(root, d, '*.npy')):
                 img_dirs.append(os.path.join(root, d))
     # user chooses if there are multiple img folders
     for i, img_dir in enumerate(img_dirs):
-        print(f'{i}: {os.path.relpath(img_dir, parent_dir)}')
-    choice = input('Choose image folder index')
-    if choice.isdigit() and int(choice) < len(img_dirs):
-        return img_dirs[int(choice)]
-    else:
-        raise ValueError('Image folder not found')
+        print(f'{i}: {os.path.relpath(img_dir, img_parent)}')
+    choice = input('Choose image folders indices, comma separated: \n')
+    choice = [int(i) for i in choice.split(',')]
+    total_imgs = 0
+    for folder in choice:
+        total_imgs += len(glob.glob(os.path.join(img_dirs[folder], '*.npy')))
+    print(f'Found {total_imgs} images')
+    img_dirs = [img_dirs[i] for i in choice]
+    
+    ## Select anno folders based on img folders
+    
+    total_annos = []
+    for img_dir in img_dirs:
+        print(img_dir)
+
         
 def search_recursive(d: Dict, key: str) -> Iterator:
         """Helper function for finding which level of json annotations has
