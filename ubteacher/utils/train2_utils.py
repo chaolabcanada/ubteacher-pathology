@@ -7,22 +7,23 @@ from detectron2.data import transforms as T
 import tifffile as tf
 
 
-def select_annotypes(anno_dir: str) -> List[str]:
+def select_annotypes(anno_dirs: str) -> List[str]:
     """
     Select annotation types to include
     """
     annotypes = []
     possible_tissues = []
-    for f in glob.glob(os.path.join(anno_dir, '*.json')):
-        with open(f, 'r') as f:
-            data = json.load(f)
-        for i in data:
-            try:
-                if i['geometry']['type'] == 'Polygon':
-                    possible_tissues += [next(search_recursive(i, 'name'))]
-                    possible_tissues = list(set(t.split(' ')[0] for t in possible_tissues))
-            except:
-                pass
+    for anno_dir in anno_dirs:
+        for f in glob.glob(os.path.join(anno_dir, '*.json')):
+            with open(f, 'r') as f:
+                data = json.load(f)
+            for i in data:
+                try:
+                    if i['geometry']['type'] == 'Polygon':
+                        possible_tissues += [next(search_recursive(i, 'name'))]
+                        possible_tissues = list(set(t.split(' ')[0] for t in possible_tissues))
+                except:
+                    pass
     print(f'Found {set(possible_tissues)} tissue types with valid annotations')
     selected_tissues = input('Select tissue types to train on (comma separated): \n')
     tissue_types = selected_tissues.split(', ')
@@ -33,29 +34,7 @@ def select_annotypes(anno_dir: str) -> List[str]:
 def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     """
     Find qupath exported annotations directory
-    """
-    
-    # Select anno_subdir
-    
-    if os.path.exists(os.path.join(anno_parent, 'qupath_annotations_latest')):
-        print('Automatically chose qupath_annotations_latest folder')
-        anno_subdir = os.path.join(anno_parent, 'qupath_annotations_latest')
-    else:
-        anno_dirs = []
-        for root, dirs, files in os.walk(anno_parent):
-            for d in dirs:
-                if 'annotations' in d:
-                    anno_dirs.append(os.path.join(root, d))
-        # user chooses if there are multiple annotation folders
-        print('Found multiple annotation folders:')
-        for i, anno_dir in enumerate(anno_dirs):
-            print(f'{i}: {os.path.relpath(anno_dir, anno_parent)}')
-        choice = input('Choose annotation folder index: \n')
-        if choice.isdigit() and int(choice) < len(anno_dirs):
-            anno_subdir = str(anno_dirs[int(choice)]) 
-        else:
-            raise ValueError('Annotation folder not found')
-        
+    """        
     img_dirs = []
     for root, dirs, files in os.walk(img_parent):
         for d in dirs:
@@ -74,9 +53,42 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     
     ## Select anno folders based on img folders
     
+    # Select anno_subdir
+    
+    #See if qupath_annotations_latest exists in an img_dir
+    
+    sample_dir = os.path.join(anno_parent, os.path.basename(img_dirs[0]))
+    
+    if os.path.exists(os.path.join(sample_dir, 'qupath_annotations_latest')):
+        print('Automatically chose qupath_annotations_latest folder')
+        anno_subdir = ('qupath_annotations_latest')
+    else:
+        anno_dirs = []
+        for root, dirs, files in os.walk(sample_dir):
+            for d in dirs:
+                if 'annotations' in d:
+                    anno_dirs.append(os.path.join(root, d))
+        # user chooses if there are multiple annotation folders
+        print('Found multiple annotation folders:')
+        for i, anno_dir in enumerate(anno_dirs):
+            print(f'{i}: {os.path.relpath(anno_dir, anno_parent)}')
+        choice = input('Choose annotation folder index: \n')
+        if choice.isdigit() and int(choice) < len(anno_dirs):
+            anno_subdir = os.path.basename(anno_dirs[int(choice)])
+        else:
+            raise ValueError('Annotation folder not found')
+    
     total_annos = []
     for img_dir in img_dirs:
-        print(img_dir)
+        base_dir = os.path.basename(img_dir)
+        anno_dir = os.path.join(anno_parent, base_dir, anno_subdir)
+        print(anno_dir)
+        if os.path.exists(anno_dir):
+            total_annos.append(anno_dir)
+        else:
+            raise ValueError(f'Annotation folder not found for {base_dir}')
+    
+    return img_dirs, total_annos
 
         
 def search_recursive(d: Dict, key: str) -> Iterator:
