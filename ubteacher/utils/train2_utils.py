@@ -6,6 +6,30 @@ import glob
 from detectron2.data import transforms as T
 import tifffile as tf
 
+
+def select_annotypes(anno_dir: str) -> List[str]:
+    """
+    Select annotation types to include
+    """
+    annotypes = []
+    possible_tissues = []
+    for f in glob.glob(os.path.join(anno_dir, '*.json')):
+        with open(f, 'r') as f:
+            data = json.load(f)
+        for i in data:
+            try:
+                if i['geometry']['type'] == 'Polygon':
+                    possible_tissues += [next(search_recursive(i, 'name'))]
+                    possible_tissues = list(set(t.split(' ')[0] for t in possible_tissues))
+            except:
+                pass
+    print(f'Found {set(possible_tissues)} tissue types with valid annotations')
+    selected_tissues = input('Select tissue types to train on (comma separated)')
+    tissue_types = selected_tissues.split(',')
+    print(f'Selected tissue types: {tissue_types}')
+    annotypes.extend(tissue_types)
+    return annotypes
+        
 def find_anno_dir(parent_dir: str) -> List[str]:
     """
     Find qupath exported annotations directory
@@ -59,14 +83,6 @@ def search_recursive(d: Dict, key: str) -> Iterator:
                 # generator function - saves in memory until called
                 # (use for loop to call)
                 yield v
-
-def parse_json_by_task(json_file):
-    """
-    Parse json file by task
-    """
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-        return data
     
 def get_scaling(original_file, output_file):
         with tf.TiffFile(original_file) as tiff:
@@ -85,9 +101,9 @@ class ParseFromQuPath:
     def __init__(self, ref_dim, target_dim, tissue_types):
         self.anno_dir = '/mnt/RSX/Datasets_pathology/SRI_OSCC_lymph_labeled/qupath_annotations_latest'
         self.img_dir = '/mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/SRI_OSCC'
-        self.tissue_types = tissue_types
         self.ref_dim = ref_dim
         self.target_dim = target_dim
+        self.tissue_types = tissue_types
             
     def scale_bboxes_qupath(self, anno):
         x_scale = self.ref_dim[1] / self.target_dim[1]
@@ -109,6 +125,7 @@ class ParseFromQuPath:
         with open(json_file, 'r') as f:
             data = json.load(f)
         tissue_data = []
+            
         for i in data:
             if any(tissue in list(search_recursive(i, 'name')) for tissue in self.tissue_types):
                 tissue_data.append(i)
