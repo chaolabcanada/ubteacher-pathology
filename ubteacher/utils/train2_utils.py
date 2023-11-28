@@ -10,8 +10,8 @@ import argparse
 
 def find_file(parent_dir, key, fmts):
     for root, dirs, files in os.walk(parent_dir):
-        for f in files:
-            for fmt in fmts:
+        for fmt in fmts:
+            for f in files:
                 if f.startswith(key) and f.endswith(fmt):
                     return os.path.join(root, f)
         raise ValueError(f'File not found for {key}')
@@ -124,9 +124,9 @@ def get_scaling(original_file, output_file):
 
 class ParseFromQuPath:
     
-    def __init__(self, ref_dim, target_dim, tissue_types):
-        self.anno_dir = '/mnt/RSX/Datasets_pathology/SRI_OSCC_lymph_labeled/qupath_annotations_latest'
-        self.img_dir = '/mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/SRI_OSCC'
+    def __init__(self, anno_dir, img_dir, ref_dim, target_dim, tissue_types):
+        self.anno_dir = anno_dir
+        self.img_dir = img_dir
         self.ref_dim = ref_dim
         self.target_dim = target_dim
         self.tissue_types = tissue_types
