@@ -162,6 +162,103 @@ class ParseFromQuPath:
         
         return out, cat_map
 
+    def split_dataset(self, cfg, dataset_names: List[str], args: argparse.Namespace, set_seed = False):
+        """Function to collect all input datasets and split them
+        into 'train' and 'val' sets.
+        Args:
+        dataset_names: a list of dataset names in the dataset directory
+        args: parsed command-line arguments
+        
+        """
+        data_train = dict()
+        data_val = dict()
+        parent_dir = cfg.PARENTDIR
+
+        for name in dataset_names:
+            image_dir = os.path.join(parent_dir, name)
+            annotation_dir = os.path.join(image_dir, "tissue_annotations")
+
+            #Try loading from dataseed
+        try:
+            with open(cfg.DATASEED, 'r') as f:
+                data = json.load(f)
+                train_set = data['train']
+                val_set = data['val']
+        except:
+            
+            print('Dataseed did not load. Creating new seed.')
+                            
+            train_set, val_set = self.train_val_split(
+                image_dir, annotation_dir, 
+            )         
+        for i, j in zip((data_train, data_val), (train_set, val_set)):
+            for k, v in j.items():
+                if k in i:
+                    i[k].extend(v)
+                else:
+                    i[k] = v
+                        
+            # Create json specifying train/val split
+        if set_seed:
+            data = {'train': train_set, 'val': val_set}
+            with open(cfg.DATASEED, 'w') as f:
+                json.dump(data, f)
+                
+        return data_train, data_val
+    
+    @staticmethod
+    def train_val_split(
+        image_dir: str,
+        annotation_dir: str,
+        split_miu: float = 0.2,
+    ):
+        """Split image dataset and the associated annotations into "train" and "test".
+        WARNING: images and annotations must have the same name
+
+        Args:
+        image_dir -- path to images
+        annotation_dir -- path to annotations (e.g., .json)
+        compatible_formats -- ex: 'tif', 'jpg'
+        split_miu -- fraction of overall data to split as validation dataset
+
+        Return:
+        train_set -- Dict('images': [paths], 'annotations': [paths])
+        val_set -- Dict('images': [paths], 'annotations': [paths])
+        """
+        train = []
+        val = []
+        anno_train = []
+        anno_val = []
+
+        for img_file in os.scandir(image_dir):
+            # Find image
+            if not img_file.name.startswith(".") and img_file.name.endswith('npy'):
+                image_name = os.path.splitext(img_file.name)[0]
+                # Find matching annotation json
+                anno_file = os.path.join(annotation_dir, image_name + ".json")
+                if os.path.exists(anno_file):  # Only add images with matching annos
+                    anno_train.append(anno_file)
+                    train.append(img_file.path)
+
+        # Randomly split some validation data
+        val_data_len = int(len(train) * split_miu)
+        train_data_len = len(train) - val_data_len
+        split_guide = [True] * val_data_len + [False] * train_data_len
+        random.shuffle(split_guide)
+        for idx, to_split in enumerate(split_guide):
+            if to_split:
+                split_guide.pop(idx)
+                val.append(train.pop(idx))
+                anno_val.append(anno_train.pop(idx))
+        train_set = dict()
+        val_set = dict()
+        for i, data_group in zip(
+            (train_set, val_set), ((train, anno_train), (val, anno_val))
+        ):
+            for n, k in enumerate(["images", "annotations"]):
+                i[k] = data_group[n]
+        return train_set, val_set
+
     def get_coco_format(self, json_file):
         
         """
