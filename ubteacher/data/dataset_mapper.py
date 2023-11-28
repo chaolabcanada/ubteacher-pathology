@@ -16,7 +16,7 @@ import time
 from detectron2.data.dataset_mapper import DatasetMapper
 from PIL import Image
 from ubteacher.data.detection_utils import build_strong_augmentation
-from utils.utils import vis_image_with_annos #TODO: Use this to visualize the dataset for debugging
+from ubteacher.utils.utils import vis_image_with_annos #TODO: Use this to visualize the dataset for debugging
     
 class DatasetMapperTwoCropSeparate(DatasetMapper):
     
