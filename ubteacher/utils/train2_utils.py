@@ -4,6 +4,7 @@ from typing import Dict, Tuple, List, Set, Iterator
 import json
 import glob
 from detectron2.data import transforms as T
+from detectron2.data import DatasetCatalog, MetadataCatalog
 import tifffile as tf
 import random
 import argparse
@@ -288,3 +289,39 @@ class ParseFromQuPath:
                         ]  
 
         return dataset_dicts
+    
+def register_dataset(
+        self, dset_type: str, dataset: Dict, cat_map: Dict
+    ) -> None:
+        """Helper function to register a new dataset to detectron2's
+        Datasetcatalog and Metadatacatalog.
+
+        Args:
+        dataset -- dict with keys 'images' and 'annotations', where each value is a list of
+        [image_paths] and [annotation_paths]}, in which
+                image_paths -- list of paths to image files
+                annotation_paths -- list of paths to annotation files
+        cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
+        """
+                
+        images = dataset["images"]
+        annotations = dataset["annotations"]
+        reg_name = "ROI_" + dset_type
+        
+        # Register dataset to DatasetCatalog
+        print(f"working on '{reg_name}'...")
+        
+        if len(images) != len(annotations):
+            print(
+                f"There are {len(images)} images but {len(annotations)} annotations, "
+                "you may want to double check if this was expected..."
+            )
+        DatasetCatalog.register(
+            reg_name,
+            lambda d=dset_type: self.basic_anno_dicts(dataset), #Changed this to basic anno dicts
+        )
+        # Register metadata to MetadataCatalog
+        MetadataCatalog.get(reg_name).set(
+            thing_classes=sorted([k for k, v in cat_map.items()])
+        )
+        return MetadataCatalog
