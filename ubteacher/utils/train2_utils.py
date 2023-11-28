@@ -5,7 +5,16 @@ import json
 import glob
 from detectron2.data import transforms as T
 import tifffile as tf
+import random
+import argparse
 
+def find_file(parent_dir, key, fmts):
+    for root, dirs, files in os.walk(parent_dir):
+        for f in files:
+            for fmt in fmts:
+                if f.startswith(key) and f.endswith(fmt):
+                    return os.path.join(root, f)
+        raise ValueError(f'File not found for {key}')
 
 def select_annotypes(anno_dirs: str) -> List[str]:
     """
@@ -108,12 +117,9 @@ def get_scaling(original_file, output_file):
         with tf.TiffFile(original_file) as tiff:
             # get base size
             base_dim = tiff.pages[0].shape[:2]
-            print(f'Image size: {base_dim}') #TODO: remove
-    
         f = np.load(output_file)
         target_dim = f.shape[:2]
         del f # use del instead of with because numpy version issue
-        print(f'Image size: {target_dim}') #TODO: remove
         return base_dim, target_dim
 
 class ParseFromQuPath:
@@ -160,7 +166,7 @@ class ParseFromQuPath:
         
         out = self.scale_bboxes_qupath(coords)
         
-        return out, cat_map
+        return out
 
     def split_dataset(self, cfg, dataset_names: List[str], args: argparse.Namespace, set_seed = False):
         """Function to collect all input datasets and split them
@@ -265,13 +271,12 @@ class ParseFromQuPath:
         Get coco format for detectron2
         """
         ## Determine image format
-        fmt = os.path.splitext(os.listdir(self.img_dir)[0])[1]
         img_base = os.path.basename(os.path.splitext(json_file)[0])
         img_fname = os.path.join(self.img_dir, img_base) + '.npy'
         
         ## Get annotation data
         
-        annotation_dicts, cat_map = self.get_boxes(json_file)
+        annotation_dicts = self.get_boxes(json_file)
         
         ## Fill remaining fields
         
@@ -282,4 +287,4 @@ class ParseFromQuPath:
                         'annotations': annotation_dicts}
                         ]  
 
-        return dataset_dicts, cat_map
+        return dataset_dicts
