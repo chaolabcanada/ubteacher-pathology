@@ -16,7 +16,7 @@ from ubteacher.modeling import *
 from ubteacher.engine import *
 from ubteacher.engine.trainer import UBTeacherTrainer, UBRCNNTeacherTrainer, BaselineTrainer
 from ubteacher import add_ubteacher_config
-from ubteacher.utils.ROI_utils import (TrainHelper, 
+from ubteacher.utils.utils import (TrainHelper, 
                                        get_categorical_map, 
                                        get_annotypes_for_dataset)
 
@@ -81,10 +81,7 @@ def main(args):
                     }
     else:
         datasets = {"train": data_train_labeled, "val": data_val}
-        
-    global_annotypes = set()
-    dset_annotypes = get_annotypes_for_dataset(data_train_labeled)
-    global_annotypes.update(dset_annotypes)
+
     cat_map = {'Neoplastic': 0} #TODO: Unhardcode this
     print(f"Using the following categorical map: {cat_map}")
 
