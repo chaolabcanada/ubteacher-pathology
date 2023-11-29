@@ -87,7 +87,7 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         Returns:
             dict: a format that builtin models in detectron2 accept
         """
-        dataset_dict = copy.deepcopy(dataset_dict[0])  # dataset_dict is a slice of a list now
+        dataset_dict = copy.deepcopy(dataset_dict)  # dataset_dict is a slice of a list now
         if self.isnumpy:
             image = np.load(dataset_dict["file_name"]) #np.load instead
         else:
@@ -172,8 +172,7 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         return (dataset_dict, dataset_dict_key)
 
 class TestMapper(DatasetMapper):
-    def __init__(self, cfg, is_train=False):
-        self.augmentations = utils.build_augmentation(cfg, is_train)
+    def __init__(self, cfg):
         # fmt: off
         self.img_format = cfg.INPUT.FORMAT
         self.isnumpy = cfg.NUMPY
@@ -191,7 +190,7 @@ class TestMapper(DatasetMapper):
         Returns:
             dict: a format that builtin models in detectron2 accept
         """
-        dataset_dict = copy.deepcopy(dataset_dict[0])  # dataset_dict is a slice of a list now
+        dataset_dict = copy.deepcopy(dataset_dict)  # dataset_dict is a slice of a list now - unknown
         # USER: Write your own image loading if it's not from a file - ok I did
         if self.isnumpy:
             image = np.load(dataset_dict["file_name"]) #np.load instead
@@ -212,10 +211,8 @@ class TestMapper(DatasetMapper):
                 sem_seg_gt = None
 
         aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
-        transforms = self.augmentations(aug_input)
         image, sem_seg_gt = aug_input.image, aug_input.sem_seg
 
-        image_shape = image.shape[:2]  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.
@@ -223,20 +220,6 @@ class TestMapper(DatasetMapper):
         if sem_seg_gt is not None:
             dataset_dict["sem_seg"] = torch.as_tensor(sem_seg_gt.astype("long"))
 
-        # USER: Remove if you don't use pre-computed proposals.
-        # Most users would not need this feature.
-        if self.proposal_topk is not None:
-            utils.transform_proposals(
-                dataset_dict, image_shape, transforms, proposal_topk=self.proposal_topk
-            )
-
-        if not self.is_train:
-            # USER: Modify this if you want to keep them for some reason.
-            dataset_dict.pop("annotations", None)
-            dataset_dict.pop("sem_seg_file_name", None)
-            return dataset_dict
-
-        if "annotations" in dataset_dict:
-            self._transform_annotations(dataset_dict, transforms, image_shape)
+        # USER: Remove if you don't use pre-computed proposals. - I don't
 
         return dataset_dict
