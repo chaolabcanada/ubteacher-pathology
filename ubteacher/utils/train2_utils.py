@@ -40,11 +40,8 @@ def select_annotypes(anno_dirs: str) -> List[str]:
     print(f'Selected tissue types: {tissue_types}')
     annotypes.extend(tissue_types)
     return annotypes
-        
-def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
-    """
-    Find qupath exported annotations directory
-    """        
+
+def find_unlabeled_dirs(img_parent: str) -> List[str]:
     img_dirs = []
     for root, dirs, files in os.walk(img_parent):
         for d in dirs:
@@ -61,9 +58,28 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     print(f'Found {total_imgs} images')
     img_dirs = [img_dirs[i] for i in choice]
     
-    ## Select anno folders based on img folders
+    return img_dirs
+        
+def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
+    """
+    Find all annotation and image folders
+    """       
     
-    # Select anno_subdir
+    img_dirs = []
+    for root, dirs, files in os.walk(img_parent):
+        for d in dirs:
+            if glob.glob(os.path.join(root, d, '*.npy')):
+                img_dirs.append(os.path.join(root, d))
+    # user chooses if there are multiple img folders
+    for i, img_dir in enumerate(img_dirs):
+        print(f'{i}: {os.path.relpath(img_dir, img_parent)}')
+    choice = input('Choose image folders indices, comma separated: \n')
+    choice = [int(i) for i in choice.split(',')]
+    total_imgs = 0
+    for folder in choice:
+        total_imgs += len(glob.glob(os.path.join(img_dirs[folder], '*.npy')))
+    print(f'Found {total_imgs} images')
+    img_dirs = [img_dirs[i] for i in choice]
     
     #See if qupath_annotations_latest exists in an img_dir
     
@@ -216,7 +232,7 @@ class ParseFromQuPath:
     def get_coco_format(self, json_file):
         
         """
-        Get coco format for detectron2
+        Get labeled coco format for detectron2
         """
         ## Determine image format
         img_base = os.path.basename(os.path.splitext(json_file)[0])
@@ -237,63 +253,69 @@ class ParseFromQuPath:
 
         return dataset_dicts
     
-    def split_dataset(self, cfg, dataset_dicts):
-        """Function to split a dataset into 'train' and 'val' sets.
-        Args:
-        dataset_dicts: a list of dicts in detectron2 dataset format
-        """
-        # Try loading from data seed
-        try:
-            with open(cfg.DATASEED, 'r') as f:
-                data = json.load(f)
-                train_set = data['train']
-                val_set = data['val']
-        except:
-            # Split dataset into train and val                
-            random.seed(0)
-            random.shuffle(dataset_dicts)
-            split = int(len(dataset_dicts) * cfg.TRAIN_FRACTION)
-            train_set = dataset_dicts[:split]
-            val_set = dataset_dicts[split:]
-            if cfg.SET_SEED:
-                data = {'train': train_set, 'val': val_set}
-            with open(cfg.DATASEED, 'w') as f:
-                json.dump(data, f)
+    def get_unlabeled_coco(self, img_file):
+            
+            """
+            Get unlabeled coco format for detectron2
+            """
+            ## Determine image format
+            img_base = os.path.basename(os.path.splitext(img_file)[0])
+            
+            ## Fill remaining fields
+            
+            dataset_dicts = [{'file_name': img_file,
+                            'height': self.target_dim[0],
+                            'width': self.target_dim[1],
+                            'image_id': img_base}
+                            ]  
+    
+            return dataset_dicts
+    
+def split_dataset(cfg, dataset_dicts):
+    """Function to split a dataset into 'train' and 'val' sets.
+    Args:
+    dataset_dicts: a list of dicts in detectron2 dataset format
+    """
+    # Try loading from data seed
+    try:
+        with open(cfg.DATASEED, 'r') as f:
+            data = json.load(f)
+            train_set = data['train']
+            val_set = data['val']
             return train_set, val_set
+    except:
+        # Split dataset into train and val                
+        random.seed(0)
+        random.shuffle(dataset_dicts)
+        split = int(len(dataset_dicts) * cfg.TRAIN_FRACTION)
+        train_set = dataset_dicts[:split]
+        val_set = dataset_dicts[split:]
+        if cfg.SET_SEED:
+            data = {'train': train_set, 'val': val_set}
+        with open(cfg.DATASEED, 'w') as f:
+            json.dump(data, f)
+        return train_set, val_set
         
     
-def register_dataset(
-        self, dset_type: str, dataset: Dict, cat_map: Dict
-    ) -> None:
+def register_dataset(dset_type: str, dataset_dicts: Dict, classes: List[str]):
         """Helper function to register a new dataset to detectron2's
         Datasetcatalog and Metadatacatalog.
 
         Args:
-        dataset -- dict with keys 'images' and 'annotations', where each value is a list of
-        [image_paths] and [annotation_paths]}, in which
-                image_paths -- list of paths to image files
-                annotation_paths -- list of paths to annotation files
+        dataset_dicts -- list of dicts in detectron2 dataset format
         cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
         """
-                
-        images = dataset["images"]
-        annotations = dataset["annotations"]
         reg_name = "ROI_" + dset_type
         
         # Register dataset to DatasetCatalog
         print(f"working on '{reg_name}'...")
         
-        if len(images) != len(annotations):
-            print(
-                f"There are {len(images)} images but {len(annotations)} annotations, "
-                "you may want to double check if this was expected..."
-            )
         DatasetCatalog.register(
             reg_name,
-            lambda d=dset_type: self.basic_anno_dicts(dataset), #Changed this to basic anno dicts
+            lambda d=dset_type: dataset_dicts
         )
         # Register metadata to MetadataCatalog
         MetadataCatalog.get(reg_name).set(
-            thing_classes=sorted([k for k, v in cat_map.items()])
+            thing_classes=classes
         )
         return MetadataCatalog
