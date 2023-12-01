@@ -35,7 +35,8 @@ def main(args):
     
     cfg = setup(args)
     img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
-    unlabeled_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
+    if cfg.DATASETS.CROSS_DATASET:
+        unlabeled_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
     try:
         classes = cfg.DATASET.CLASSES
     except:
@@ -59,13 +60,15 @@ def main(args):
             except:
                 print(f"Error parsing {json_file}")
             dicts.append(each_dict[0])
+            
 # accumulate image info for unlabeled registration
-    unlabeled_dicts = []
-    for unlabeled_dir in unlabeled_dirs:
-        for img_file in glob.glob(os.path.join(unlabeled_dir, "*." + cfg.FMT)):
-            id = os.path.basename(img_file).split('.')[0]
-            each_dict = ParseFromQuPath(unlabeled_dir).get_unlabeled_coco(img_file)
-            unlabeled_dicts.append(each_dict[0])
+    if cfg.DATASETS.CROSS_DATASET:
+        unlabeled_dicts = []
+        for unlabeled_dir in unlabeled_dirs:
+            for img_file in glob.glob(os.path.join(unlabeled_dir, "*." + cfg.FMT)):
+                id = os.path.basename(img_file).split('.')[0]
+                each_dict = ParseFromQuPath(unlabeled_dir).get_unlabeled_coco(img_file)
+                unlabeled_dicts.append(each_dict[0])
 
     # split and register
     if cfg.DATASETS.CROSS_DATASET:
