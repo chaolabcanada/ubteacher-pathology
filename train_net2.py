@@ -57,9 +57,10 @@ def main(args):
                                             target_dim, 
                                             classes
                                             ).get_coco_format(json_file)
+                dicts.append(each_dict[0])
             except:
                 print(f"Error parsing {json_file}")
-            dicts.append(each_dict[0])
+            
             
 # accumulate image info for unlabeled registration
     if cfg.DATASETS.CROSS_DATASET:

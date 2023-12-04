@@ -305,7 +305,7 @@ def register_dataset(dset_type: str, dataset_dicts: Dict, classes: List[str]):
         dataset_dicts -- list of dicts in detectron2 dataset format
         cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
         """
-        reg_name = "ROI_" + dset_type
+        reg_name = dset_type
         
         # Register dataset to DatasetCatalog
         print(f"working on '{reg_name}'...")
