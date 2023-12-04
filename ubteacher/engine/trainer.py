@@ -32,7 +32,7 @@ from ubteacher.data.build import (
     build_detection_test_loader,
 )
 from ubteacher.utils.utils import DatasetMapperTwoCropSeparateV1
-from ubteacher.data.dataset_mapper import DatasetMapperTwoCropSeparate
+from ubteacher.data.dataset_mapper import DatasetMapperTwoCropSeparate, TestMapper
 from ubteacher.evaluation.evaluator import inference_on_dataset
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
 from ubteacher.modeling.pseudo_generator import PseudoGenerator
@@ -728,7 +728,8 @@ class UBTeacherTrainer(DefaultTrainer):
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):
-        return build_detection_test_loader(cfg, dataset_name)
+        mapper = TestMapper(cfg)
+        return build_detection_test_loader(cfg, dataset_name, mapper)
 
     def build_hooks(self):
         cfg = self.cfg.clone()
