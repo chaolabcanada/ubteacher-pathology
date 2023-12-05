@@ -292,8 +292,8 @@ def split_dataset(cfg, dataset_dicts):
         val_set = dataset_dicts[split:]
         if cfg.SET_SEED:
             data = {'train': train_set, 'val': val_set}
-        with open(cfg.DATASEED, 'w') as f:
-            json.dump(data, f)
+            with open(cfg.DATASEED, 'w') as f:
+                json.dump(data, f)
         return train_set, val_set
         
     
