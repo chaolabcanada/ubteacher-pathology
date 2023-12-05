@@ -92,7 +92,6 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
             image = np.load(dataset_dict["file_name"]) #np.load instead
         else:
             image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
-            
 
         if "sem_seg_file_name" in dataset_dict:
             if self.isnumpy:
@@ -152,6 +151,20 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
 
             bboxes_d2_format = utils.filter_empty_instances(instances)
             dataset_dict["instances"] = bboxes_d2_format
+            
+        ## visualize the dataset for debugging
+    
+        out_dir = os.path.join(os.getcwd(), 'training_data_vis')
+        os.makedirs(out_dir, exist_ok=True)
+        n = 0
+        vis_file = dataset_dict['image_id'] + '.png'
+        while os.path.exists(os.path.join(out_dir, vis_file)):
+            n += 1
+            vis_file = f"{dataset_dict['image_id']}_{n}.png"
+            if n > 2: #For only 2 augmentations
+                break
+            
+        vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
         
         # apply strong augmentation
         # We use torchvision augmentation, which is not compatiable with
