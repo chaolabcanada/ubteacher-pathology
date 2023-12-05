@@ -866,7 +866,7 @@ class UBRCNNTeacherTrainer(DefaultTrainer):
             )
 
         TrainerBase.__init__(self)
-        self._trainer = (AMPTrainer if cfg.SOLVER.AMP.ENABLED else SimpleTrainer)(
+        self._trainer = (AMPTrainer if cfg.SOLVER.AMP.ENABLED else SimpleTrainer)( ## TODO: Check if this is a source of error
             model, data_loader, optimizer
         )
         self.scheduler = self.build_lr_scheduler(cfg, optimizer)
@@ -1201,6 +1201,7 @@ class UBRCNNTeacherTrainer(DefaultTrainer):
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):
+        mapper = TestMapper(cfg)
         return build_detection_test_loader(cfg, dataset_name)
 
     def build_hooks(self):

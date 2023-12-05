@@ -59,6 +59,7 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         self.img_format = cfg.INPUT.FORMAT
         self.isnumpy = cfg.NUMPY
         self.mask_on = cfg.MODEL.MASK_ON
+        self.debug = cfg.DEBUG
         self.mask_format = cfg.INPUT.MASK_FORMAT
         self.keypoint_on = cfg.MODEL.KEYPOINT_ON
         self.load_proposals = cfg.MODEL.LOAD_PROPOSALS
@@ -153,18 +154,18 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
             dataset_dict["instances"] = bboxes_d2_format
             
         ## visualize the dataset for debugging
-    
-        out_dir = os.path.join(os.getcwd(), 'training_data_vis')
-        os.makedirs(out_dir, exist_ok=True)
-        n = 0
-        vis_file = dataset_dict['image_id'] + '.png'
-        while os.path.exists(os.path.join(out_dir, vis_file)):
-            n += 1
-            vis_file = f"{dataset_dict['image_id']}_{n}.png"
-            if n > 2: #For only 2 augmentations
-                break
-            
-        vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
+        if self.debug:
+            out_dir = os.path.join(os.getcwd(), 'training_data_vis')
+            os.makedirs(out_dir, exist_ok=True)
+            n = 0
+            vis_file = dataset_dict['image_id'] + '.png'
+            while os.path.exists(os.path.join(out_dir, vis_file)):
+                n += 1
+                vis_file = f"{dataset_dict['image_id']}_{n}.png"
+                if n > 2: #For only 2 augmentations
+                    break
+                
+            vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
         
         # apply strong augmentation
         # We use torchvision augmentation, which is not compatiable with

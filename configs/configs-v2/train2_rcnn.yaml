@@ -1,38 +1,40 @@
-_BASE_: "../FCOS/Base-FCOS.yaml"
+_BASE_: "../Faster-RCNN/Base-RCNN-FPN.yaml" 
 MODEL:
+  META_ARCHITECTURE: "TwoStagePseudoLabGeneralizedRCNN"
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
     DEPTH: 50
-  FCOS:
-    CENTER_SAMPLE: False
-    NMS_CRITERIA_TRAIN: "cls" # use cls-only to select pseudo-labels
-    NMS_CRITERIA_TEST: "cls_n_ctr" # use cls + centerness score to select pseudo-labels
-    NMS_CRITERIA_REG_TRAIN: "cls_n_loc" # use cls + localization uncertainty to select pseudo-labels
-    POS_RADIUS: 1.5
-    YIELD_PROPOSAL: True
-    UNIFY_CTRCLS: False
-    DFL_WEIGHT: 0.0
-    REG_DISCRETE: True
-    KL_LOSS: True
-    KLLOSS_WEIGHT: 0.05
-    KL_LOSS_TYPE: "nlloss"
+  MASK_ON: False
+  PROPOSAL_GENERATOR:
+    NAME: "PseudoLabRPN"
+  RPN:
+    POSITIVE_FRACTION: 0.25
+    LOSS: "CrossEntropy"
+  ROI_HEADS:
+    NAME: "StandardROIHeadsPseudoLab"
+    LOSS: "FocalLoss_BoundaryVar"
+    NUM_CLASSES: 4
+  ROI_BOX_HEAD:
+    BBOX_REG_LOSS_TYPE: "nlloss"
+    CLS_AGNOSTIC_BBOX_REG: true
 SOLVER:
-  IMG_PER_BATCH_LABEL: 6
-  IMG_PER_BATCH_UNLABEL: 6
+  LR_SCHEDULER_NAME: "WarmupMultiStepLR"
+  IMG_PER_BATCH_LABEL: 5
+  IMG_PER_BATCH_UNLABEL: 5
   BASE_LR: 0.01
   STEPS: (180000,)
   MAX_ITER: 180000
   AMP:
-    ENABLED: True
+    ENABLED: False
 DATALOADER:
-  SUP_PERCENT: 1.0
+  SUP_PERCENT: 100.0
   RANDOM_DATA_SEED: 1
 DATASETS:
   CROSS_DATASET: False
   TRAIN: ("train",)
   TEST: ("val",)
 SEMISUPNET:
-  Trainer: "ubteacher"
+  Trainer: "ubteacher_rcnn"
   PSEUDO_BBOX_SAMPLE: "thresholding"
   PSEUDO_BBOX_SAMPLE_REG: "thresholding" # 0.5 when PSEUDO_BBOX_SAMPLE_REG = 'thresholding'
   BBOX_THRESHOLD: 0.5
@@ -55,11 +57,11 @@ SEMISUPNET:
   ANALYSIS_PRINT_FRE: 5000
   ANALYSIS_ACCUMLATE_FRE: 50
 TEST:
-  EVAL_PERIOD: 5000
+  EVAL_PERIOD: 1000
   EVALUATOR: "COCOeval"
   VAL_LOSS: False
 INPUT:
-  MIN_SIZE_TRAIN: (800,)
+  MIN_SIZE_TRAIN: (1333,)
   MAX_SIZE_TRAIN: 1440
   MIN_SIZE_TRAIN_SAMPLING: "choice"
 ## New stuff
@@ -70,4 +72,5 @@ IMG_DIR: /mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/
 FMT: .svs, .tif
 TRAIN_FRACTION: 0.8
 SET_SEED: False
-DATASEED: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/dataseed/fcos_v3.json
+DATASEED: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/dataseed/simple_test.json
+DEBUG: False
