@@ -334,7 +334,6 @@ class TrainUtil:
         val_set -- Dict('images': [paths], 'annotations': [paths])
         """
         train = []
-        train_unlabeled = []
         val = []
         anno_train = []
         anno_val = []
@@ -796,9 +795,12 @@ def vis_image_with_annos(image, annotations, output):
         )
         ax.add_patch(rect)
         ax.annotate(f"class_ID={anno['category_id']}", (x1, y1), color='b')
-        #plot poly
-        x_coords = anno['segmentation'][0][::2]
-        y_coords = anno['segmentation'][0][1::2]
+        #try plot poly
+        try:
+            x_coords = anno['segmentation'][0][::2]
+            y_coords = anno['segmentation'][0][1::2]
+        except:
+            continue
         ax.plot(x_coords, y_coords, color='g')
     fig.savefig(output)
     plt.close()
