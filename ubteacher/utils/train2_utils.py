@@ -133,11 +133,38 @@ def search_recursive(d: Dict, key: str) -> Iterator:
 def get_scaling(original_file, output_file):
         with tf.TiffFile(original_file) as tiff:
             # get base size
-            base_dim = tiff.pages[0].shape[:2]
+            try:
+                base_dim = tiff.pages[0].shape[:2]
+            except:
+                base_dim = tiff.series[0].shape[:2]
         f = np.load(output_file)
         target_dim = f.shape[:2]
         del f # use del instead of with because numpy version issue
         return base_dim, target_dim
+class ParseUnlabeled:
+    def __init__(self, u_img_dir, ref_dim, target_dim):
+        self.u_img_dir = u_img_dir
+        self.ref_dim = ref_dim
+        self.target_dim = target_dim
+        
+    def get_unlabeled_coco(self, img_file):
+            
+            """
+            Get unlabeled coco format for detectron2
+            """
+            ## Determine image format
+            img_base = os.path.basename(os.path.splitext(img_file)[0])
+            
+            ## Fill remaining fields
+            
+            dataset_dicts = [{'file_name': img_file,
+                            'height': self.target_dim[0],
+                            'width': self.target_dim[1],
+                            'image_id': img_base}
+                            ]  
+    
+            return dataset_dicts 
+    
 
 class ParseFromQuPath:
     
@@ -173,7 +200,8 @@ class ParseFromQuPath:
             if any(tissue in list(search_recursive(i, 'name')) for tissue in self.tissue_types):
                 tissue_data.append(i)
         cat_map = {tissue: i for i, tissue in enumerate(self.tissue_types)}
-        coords = []
+        coords = []        
+        
         for k in tissue_data:
             ## add names to k 
             k['geometry']['category_id'] = cat_map[next(search_recursive(k, 'name'))]
@@ -185,7 +213,7 @@ class ParseFromQuPath:
         
         return out
 
-    def split_dataset(self, cfg, dataset_names: List[str], args: argparse.Namespace, set_seed = False):
+    def split_dataset(self, cfg, dataset_names: List[str], args: argparse.Namespace, set_seed = True):
         """Function to collect all input datasets and split them
         into 'train' and 'val' sets.
         Args:
@@ -252,24 +280,6 @@ class ParseFromQuPath:
                         ]  
 
         return dataset_dicts
-    
-    def get_unlabeled_coco(self, img_file):
-            
-            """
-            Get unlabeled coco format for detectron2
-            """
-            ## Determine image format
-            img_base = os.path.basename(os.path.splitext(img_file)[0])
-            
-            ## Fill remaining fields
-            
-            dataset_dicts = [{'file_name': img_file,
-                            'height': self.target_dim[0],
-                            'width': self.target_dim[1],
-                            'image_id': img_base}
-                            ]  
-    
-            return dataset_dicts
     
 def split_dataset(cfg, dataset_dicts):
     """Function to split a dataset into 'train' and 'val' sets.
