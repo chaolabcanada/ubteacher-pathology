@@ -13,7 +13,8 @@ from ubteacher.utils.train2_utils import (find_dirs,
                                           find_unlabeled_dirs, 
                                           select_annotypes, 
                                           find_file,
-                                          ParseFromQuPath, 
+                                          ParseFromQuPath,
+                                          ParseUnlabeled, 
                                           get_scaling, 
                                           split_dataset, 
                                           register_dataset)
@@ -33,10 +34,10 @@ def setup(args):
     
 def main(args):
     
-    cfg = setup(args)
+    cfg = setup(args)     
     img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
     if cfg.DATASETS.CROSS_DATASET:
-        unlabeled_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
+        u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
     try:
         classes = cfg.DATASET.CLASSES
     except:
@@ -61,15 +62,13 @@ def main(args):
             except:
                 print(f"Error parsing {json_file}")
             
-            
 # accumulate image info for unlabeled registration
     if cfg.DATASETS.CROSS_DATASET:
         unlabeled_dicts = []
-        for unlabeled_dir in unlabeled_dirs:
-            for img_file in glob.glob(os.path.join(unlabeled_dir, "*." + cfg.FMT)):
-                id = os.path.basename(img_file).split('.')[0]
-                each_dict = ParseFromQuPath(unlabeled_dir).get_unlabeled_coco(img_file)
-                unlabeled_dicts.append(each_dict[0])
+        for u_img_dir in u_img_dirs:
+            for img_file in glob.glob(os.path.join(u_img_dir, "*.npy")):
+                each_dict = ParseUnlabeled(u_img_dir).get_unlabeled_coco(img_file)
+                unlabeled_dicts.append(each_dict[0])     
 
     # split and register
     if cfg.DATASETS.CROSS_DATASET:
@@ -101,7 +100,6 @@ def main(args):
                 ensem_ts_model, save_dir=cfg.OUTPUT_DIR
             ).resume_or_load(cfg.MODEL.WEIGHTS, resume=args.resume)
             res = Trainer.test(cfg, ensem_ts_model.modelTeacher)
-
         else:
             model = Trainer.build_model(cfg)
             DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(

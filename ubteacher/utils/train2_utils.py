@@ -141,25 +141,26 @@ def get_scaling(original_file, output_file):
         target_dim = f.shape[:2]
         del f # use del instead of with because numpy version issue
         return base_dim, target_dim
+    
 class ParseUnlabeled:
-    def __init__(self, u_img_dir, ref_dim, target_dim):
+    def __init__(self, u_img_dir):
         self.u_img_dir = u_img_dir
-        self.ref_dim = ref_dim
-        self.target_dim = target_dim
         
     def get_unlabeled_coco(self, img_file):
             
             """
             Get unlabeled coco format for detectron2
             """
-            ## Determine image format
+            f = np.load(img_file)
+            shape = f.shape
+            del f # use del instead of with because numpy version issue
             img_base = os.path.basename(os.path.splitext(img_file)[0])
-            
+                       
             ## Fill remaining fields
             
             dataset_dicts = [{'file_name': img_file,
-                            'height': self.target_dim[0],
-                            'width': self.target_dim[1],
+                            'height': shape[0],
+                            'width': shape[1],
                             'image_id': img_base}
                             ]  
     
@@ -213,7 +214,7 @@ class ParseFromQuPath:
         
         return out
 
-    def split_dataset(self, cfg, dataset_names: List[str], args: argparse.Namespace, set_seed = True):
+    def split_dataset(self, cfg, dataset_names: List[str]):
         """Function to collect all input datasets and split them
         into 'train' and 'val' sets.
         Args:
@@ -224,6 +225,7 @@ class ParseFromQuPath:
         data_train = dict()
         data_val = dict()
         parent_dir = cfg.PARENTDIR
+        set_seed = cfg.SET_SEED
 
         for name in dataset_names:
             image_dir = os.path.join(parent_dir, name)
