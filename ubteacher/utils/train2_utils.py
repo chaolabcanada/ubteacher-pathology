@@ -213,51 +213,6 @@ class ParseFromQuPath:
         out = self.scale_bboxes_qupath(coords)
         
         return out
-
-    def split_dataset(self, cfg, dataset_names: List[str]):
-        """Function to collect all input datasets and split them
-        into 'train' and 'val' sets.
-        Args:
-        dataset_names: a list of dataset names in the dataset directory
-        args: parsed command-line arguments
-        
-        """
-        data_train = dict()
-        data_val = dict()
-        parent_dir = cfg.PARENTDIR
-        set_seed = cfg.SET_SEED
-
-        for name in dataset_names:
-            image_dir = os.path.join(parent_dir, name)
-            annotation_dir = os.path.join(image_dir, "tissue_annotations")
-
-            #Try loading from dataseed
-        try:
-            with open(cfg.DATASEED, 'r') as f:
-                data = json.load(f)
-                train_set = data['train']
-                val_set = data['val']
-        except:
-            
-            print('Dataseed did not load. Creating new seed.')
-                            
-            train_set, val_set = self.train_val_split(
-                image_dir, annotation_dir, 
-            )         
-        for i, j in zip((data_train, data_val), (train_set, val_set)):
-            for k, v in j.items():
-                if k in i:
-                    i[k].extend(v)
-                else:
-                    i[k] = v
-                        
-            # Create json specifying train/val split
-        if set_seed:
-            data = {'train': train_set, 'val': val_set}
-            with open(cfg.DATASEED, 'w') as f:
-                json.dump(data, f)
-                
-        return data_train, data_val
     
     def get_coco_format(self, json_file):
         
