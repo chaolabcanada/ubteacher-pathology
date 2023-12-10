@@ -18,6 +18,7 @@ def setup(args):
     """
     cfg = get_cfg()
     add_ubteacher_config(cfg)
+    cfg.set_new_allowed(True) #allows custom cfg keys
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     cfg.freeze()
