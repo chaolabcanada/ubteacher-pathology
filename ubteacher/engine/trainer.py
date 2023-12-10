@@ -728,8 +728,11 @@ class UBTeacherTrainer(DefaultTrainer):
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):
-        mapper = TestMapper(cfg)
-        return build_detection_test_loader(cfg, dataset_name, mapper)
+        if cfg.NUMPY:
+            mapper = TestMapper(cfg)
+            return build_detection_test_loader(cfg, dataset_name, mapper)
+        else:
+            return build_detection_test_loader(cfg, dataset_name)
 
     def build_hooks(self):
         cfg = self.cfg.clone()
