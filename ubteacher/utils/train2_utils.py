@@ -41,6 +41,19 @@ def select_annotypes(anno_dirs: str) -> List[str]:
     annotypes.extend(tissue_types)
     return annotypes
 
+def select_convert_annotypes(anno_dirs: str, class_file: Dict) -> List[str]:
+    annotypes = []
+    with open(class_file, 'r') as f:
+        class_data = json.load(f)
+    possible_conversions = list(class_data.keys())
+    conversion_lengths = [len(class_data[i]) for i in possible_conversions]
+    convertible_info = [f'{i}: {j}' for i, j in zip(possible_conversions, conversion_lengths)]
+    print('Possible conversions: \n' + '\n'.join(convertible_info))
+    selected_conversion = input('Select classes to train on (comma separated): \n')
+    class_types = selected_conversion.split(', ')
+    print(f'Selected classes: {class_types}')
+    annotypes.extend(class_types)  
+
 def find_unlabeled_dirs(img_parent: str) -> List[str]:
     img_dirs = []
     for root, dirs, files in os.walk(img_parent):
@@ -136,7 +149,7 @@ def get_scaling(original_file, output_file):
             try:
                 base_dim = tiff.pages[0].shape[:2]
             except:
-                base_dim = tiff.series[0].shape[:2]
+                base_dim = tiff.series[0].shape[:2]     
         f = np.load(output_file)
         target_dim = f.shape[:2]
         del f # use del instead of with because numpy version issue
@@ -169,12 +182,13 @@ class ParseUnlabeled:
 
 class ParseFromQuPath:
     
-    def __init__(self, anno_dir, img_dir, ref_dim, target_dim, tissue_types):
+    def __init__(self, anno_dir, img_dir, ref_dim, target_dim, tissue_types, box_only):
         self.anno_dir = anno_dir
         self.img_dir = img_dir
         self.ref_dim = ref_dim
         self.target_dim = target_dim
         self.tissue_types = tissue_types
+        self.box_only = box_only
             
     def scale_bboxes_qupath(self, anno):
         x_scale = self.ref_dim[1] / self.target_dim[1]
@@ -212,7 +226,7 @@ class ParseFromQuPath:
         
         out = self.scale_bboxes_qupath(coords)
         
-        return out
+        return out       
     
     def get_coco_format(self, json_file):
         
@@ -224,8 +238,9 @@ class ParseFromQuPath:
         img_fname = os.path.join(self.img_dir, img_base) + '.npy'
         
         ## Get annotation data
-        
-        annotation_dicts = self.get_boxes(json_file)
+        if self.box_only:
+            annotation_dicts = self.get_boxes(json_file)
+            ## add polygons here
         
         ## Fill remaining fields
         

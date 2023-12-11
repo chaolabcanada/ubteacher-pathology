@@ -1,0 +1,33 @@
+{   
+    "non-neoplastic": [
+        "keratin", 
+        "necrosis",
+        "fea-sure",
+        "pathological-benign",
+        "benign",
+        "benign-sure",
+        "atypical",
+        "fea",
+        "fea-sure",
+        "udh",
+        "udh-sure",
+        "adh",
+        "adh-sure",
+        "other"
+    ],
+
+    "neoplastic": [
+        "tumor",
+        "dcis",
+        "dcis-sure",
+        "cis",
+        "malignant",
+        "invasive",
+        "carcinoma",
+        "primary"
+    ],
+
+    "ignore": [
+        "junk"
+    ]
+}

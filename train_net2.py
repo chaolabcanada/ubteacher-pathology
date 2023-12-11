@@ -11,7 +11,8 @@ from pathlib import Path
 
 from ubteacher.utils.train2_utils import (find_dirs,
                                           find_unlabeled_dirs, 
-                                          select_annotypes, 
+                                          select_annotypes,
+                                          select_convert_annotypes, 
                                           find_file,
                                           ParseFromQuPath,
                                           ParseUnlabeled, 
@@ -34,15 +35,19 @@ def setup(args):
     
 def main(args):
     
-    cfg = setup(args)     
+    cfg = setup(args)
+    box_only = cfg.BOX_ONLY     
     img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
     if cfg.DATASETS.CROSS_DATASET:
         u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
-    try:
-        classes = cfg.DATASET.CLASSES
-    except:
-        classes = select_annotypes(anno_dirs)
     
+    try:
+        class_file = cfg.CLASS_CONVERTER
+        classes = select_convert_annotypes(anno_dirs, class_file)
+    except AttributeError:
+        print('No class converter specified. Using normal classes.')
+        classes = select_annotypes(anno_dirs)
+      
 # accumulate dataset_dicts for registration
     dicts = []
     for anno_dir, img_dir in zip(anno_dirs, img_dirs):
@@ -56,7 +61,8 @@ def main(args):
                                             img_dir, 
                                             base_dim, 
                                             target_dim, 
-                                            classes
+                                            classes,
+                                            box_only
                                             ).get_coco_format(json_file)
                 dicts.append(each_dict[0])
             except:
