@@ -41,11 +41,12 @@ def main(args):
     if cfg.DATASETS.CROSS_DATASET:
         u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
     
-    try:
+    if cfg.CLASS_CONVERTER:
         class_file = cfg.CLASS_CONVERTER
         classes = select_convert_annotypes(anno_dirs, class_file)
-    except AttributeError:
+    else:
         print('No class converter specified. Using normal classes.')
+        class_file = None
         classes = select_annotypes(anno_dirs)
       
 # accumulate dataset_dicts for registration
@@ -53,20 +54,21 @@ def main(args):
     for anno_dir, img_dir in zip(anno_dirs, img_dirs):
         for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
             id = os.path.basename(json_file).split('.')[0]
-            try:
-                original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
-                img_file = os.path.join(img_dir, id + '.npy')
-                base_dim, target_dim = get_scaling(original_img_file, img_file)
-                each_dict = ParseFromQuPath(anno_dir, 
-                                            img_dir, 
-                                            base_dim, 
-                                            target_dim, 
-                                            classes,
-                                            box_only
-                                            ).get_coco_format(json_file)
-                dicts.append(each_dict[0])
-            except:
-                print(f"Error parsing {json_file}")
+           # try:
+            original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
+            img_file = os.path.join(img_dir, id + '.npy')
+            base_dim, target_dim = get_scaling(original_img_file, img_file)
+            each_dict = ParseFromQuPath(anno_dir, 
+                                        img_dir, 
+                                        base_dim, 
+                                        target_dim, 
+                                        classes,
+                                        class_file,
+                                        box_only
+                                        ).get_coco_format(json_file)
+            dicts.append(each_dict[0])
+            # except:
+               # print(f"Error parsing {json_file}")
             
 # accumulate image info for unlabeled registration
     if cfg.DATASETS.CROSS_DATASET:

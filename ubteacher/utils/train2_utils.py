@@ -52,7 +52,8 @@ def select_convert_annotypes(anno_dirs: str, class_file: Dict) -> List[str]:
     selected_conversion = input('Select classes to train on (comma separated): \n')
     class_types = selected_conversion.split(', ')
     print(f'Selected classes: {class_types}')
-    annotypes.extend(class_types)  
+    annotypes.extend(class_types) 
+    return annotypes 
 
 def find_unlabeled_dirs(img_parent: str) -> List[str]:
     img_dirs = []
@@ -72,6 +73,18 @@ def find_unlabeled_dirs(img_parent: str) -> List[str]:
     img_dirs = [img_dirs[i] for i in choice]
     
     return img_dirs
+
+def flip_dict_and_filter(d: Dict, c: List) -> Dict:
+    inverse = {}
+    for k,v in d.items():
+        for x in v:
+            if not x in inverse:
+                    inverse.setdefault(x, []).append(k)
+    #flatten values
+    inverse = {k: v[0] for k, v in inverse.items()}
+    #filter values for only those in c
+    inverse = {k: v for k, v in inverse.items() if k in c}
+    return inverse
         
 def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     """
@@ -121,7 +134,6 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     for img_dir in img_dirs:
         base_dir = os.path.basename(img_dir)
         anno_dir = os.path.join(anno_parent, base_dir, anno_subdir)
-        print(anno_dir)
         if os.path.exists(anno_dir):
             total_annos.append(anno_dir)
         else:
@@ -142,6 +154,14 @@ def search_recursive(d: Dict, key: str) -> Iterator:
                 # generator function - saves in memory until called
                 # (use for loop to call)
                 yield v
+
+def search_with_targets(d: Dict, key: str, targets: List[str]) -> Iterator:
+    for k, v in d.items():
+        if isinstance(v, Dict):
+            for match in search_with_targets(v, key, targets):
+                yield match
+        if k == key and v in targets:
+            yield v
     
 def get_scaling(original_file, output_file):
         with tf.TiffFile(original_file) as tiff:
@@ -182,13 +202,24 @@ class ParseUnlabeled:
 
 class ParseFromQuPath:
     
-    def __init__(self, anno_dir, img_dir, ref_dim, target_dim, tissue_types, box_only):
+    def __init__(self, anno_dir, img_dir, ref_dim, target_dim, 
+                 class_types, class_file, box_only):
+        
         self.anno_dir = anno_dir
         self.img_dir = img_dir
         self.ref_dim = ref_dim
         self.target_dim = target_dim
-        self.tissue_types = tissue_types
+        self.class_types = class_types
         self.box_only = box_only
+        self.class_file = class_file
+        
+        if self.class_file:
+            self.qupath_classes = []
+            with open(class_file, 'r') as f:
+                self.class_data = json.load(f)
+            for chosen in self.class_types:
+                self.qupath_classes.append(self.class_data[chosen])
+            self.qupath_classes = [item for sublist in self.qupath_classes for item in sublist]          
             
     def scale_bboxes_qupath(self, anno):
         x_scale = self.ref_dim[1] / self.target_dim[1]
@@ -202,7 +233,6 @@ class ParseFromQuPath:
             y1 = int(coords[2][1] / y_scale)
             i['bbox'] = [x0, y0, x1, y1]
             del i['coordinates']
-            # make it as 'bbox': asdjhkf
         return anno
         
     def get_boxes(self, json_file):
@@ -210,16 +240,27 @@ class ParseFromQuPath:
         with open(json_file, 'r') as f:
             data = json.load(f)
         tissue_data = []
-            
+        empty_tissues = []
+    
         for i in data:
-            if any(tissue in list(search_recursive(i, 'name')) for tissue in self.tissue_types):
+            if any(classes in list(search_recursive(i, 'name')) for classes in self.class_types):
                 tissue_data.append(i)
-        cat_map = {tissue: i for i, tissue in enumerate(self.tissue_types)}
-        coords = []        
+            else:
+                empty_tissues.append(i)
         
+        if self.class_file:
+            ## create cat map with input classes instead of qupath classes
+            flipped_map = flip_dict_and_filter(self.class_data, self.qupath_classes)
+            cat_map_class_types = {cat: i for i, cat in enumerate(self.class_types)}
+            cat_map = {k: cat_map_class_types[v] for k, v in flipped_map.items()}
+        else:
+            # create normal cat map in absence of conversion file      
+            cat_map = {cat: i for i, cat in enumerate(self.class_types)}
+        ## get coords
+        coords = []        
         for k in tissue_data:
             ## add names to k 
-            k['geometry']['category_id'] = cat_map[next(search_recursive(k, 'name'))]
+            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.class_types))]
             del k['geometry']['type']
             k['geometry']['bbox_mode'] = 0
             coords.append(next(search_recursive(k, 'geometry')))
