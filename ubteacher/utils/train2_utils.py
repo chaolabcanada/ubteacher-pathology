@@ -203,7 +203,7 @@ class ParseUnlabeled:
 class ParseFromQuPath:
     
     def __init__(self, anno_dir, img_dir, ref_dim, target_dim, 
-                 class_types, class_file, box_only):
+                 class_types, class_file=None, box_only=True):
         
         self.anno_dir = anno_dir
         self.img_dir = img_dir
@@ -236,26 +236,15 @@ class ParseFromQuPath:
         return anno
         
     def get_boxes(self, json_file):
-        
         with open(json_file, 'r') as f:
             data = json.load(f)
         tissue_data = []
-        empty_tissues = []
-    
         for i in data:
-            if any(classes in list(search_recursive(i, 'name')) for classes in self.class_types):
-                tissue_data.append(i)
-            else:
-                empty_tissues.append(i)
-        
-        if self.class_file:
-            ## create cat map with input classes instead of qupath classes
-            flipped_map = flip_dict_and_filter(self.class_data, self.qupath_classes)
-            cat_map_class_types = {cat: i for i, cat in enumerate(self.class_types)}
-            cat_map = {k: cat_map_class_types[v] for k, v in flipped_map.items()}
-        else:
-            # create normal cat map in absence of conversion file      
-            cat_map = {cat: i for i, cat in enumerate(self.class_types)}
+            if not self.class_file:
+                if any(classes in list(search_recursive(i, 'name')) for classes in self.class_types):
+                    tissue_data.append(i)
+        # create normal cat map in absence of conversion file      
+        cat_map = {cat: i for i, cat in enumerate(self.class_types)}
         ## get coords
         coords = []        
         for k in tissue_data:
@@ -266,8 +255,76 @@ class ParseFromQuPath:
             coords.append(next(search_recursive(k, 'geometry')))
         
         out = self.scale_bboxes_qupath(coords)
+        return out
+    
+    def get_boxes_converted(self, json_file):
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        tissue_data = []
+    
+        for i in data:
+            if any(classes in list(search_recursive(i, 'name')) for classes in self.qupath_classes):
+                tissue_data.append(i)
+    
+        ## create cat map with input classes instead of qupath classes
+        flipped_map = flip_dict_and_filter(self.class_data, self.qupath_classes)
+        cat_map_class_types = {cat: i for i, cat in enumerate(self.class_types)}
+        cat_map = {k: cat_map_class_types[v] for k, v in flipped_map.items()}
         
-        return out       
+        ## get coords
+        coords = []        
+        for k in tissue_data:
+            ## add names to k 
+            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.qupath_classes))]
+            del k['geometry']['type']
+            k['geometry']['bbox_mode'] = 0
+            if len(k['geometry']['coordinates'][0]) <= 5:
+                coords.append(next(search_recursive(k, 'geometry')))
+        
+        out = self.scale_bboxes_qupath(coords)
+        
+        return out
+        
+    
+    def get_polygons(self, json_file):
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        lesion_data = []
+        for i in data:
+            if not self.class_file:
+                if any(tissue in list(search_recursive(i, 'name')) for tissue in self.class_types):
+                    lesion_data.append(i)
+        cat_map = {tissue: i for i, tissue in enumerate(self.class_types)}
+        coords = []
+        for k in lesion_data:
+            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.qupath_classes))]
+            del k['geometry']['type']
+            unflat_coords = next(search_recursive(k, 'geometry'))
+            print(unflat_coords)
+            return
+        
+    def get_polygons_converted(self, json_file):
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        tissue_data = []
+    
+        for i in data:
+            if any(classes in list(search_recursive(i, 'name')) for classes in self.qupath_classes):
+                tissue_data.append(i)
+    
+        ## create cat map with input classes instead of qupath classes
+        flipped_map = flip_dict_and_filter(self.class_data, self.qupath_classes)
+        cat_map_class_types = {cat: i for i, cat in enumerate(self.class_types)}
+        cat_map = {k: cat_map_class_types[v] for k, v in flipped_map.items()}
+        
+        ## get coords
+        coords = []        
+        for k in tissue_data:
+            ## add names to k 
+            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.qupath_classes))]
+            del k['geometry']['type']
+            
+        return out
     
     def get_coco_format(self, json_file):
         
@@ -280,8 +337,15 @@ class ParseFromQuPath:
         
         ## Get annotation data
         if self.box_only:
-            annotation_dicts = self.get_boxes(json_file)
-            ## add polygons here
+            if self.class_file:
+                annotation_dicts = self.get_boxes_converted(json_file)
+            else:
+                annotation_dicts = self.get_boxes(json_file)
+        else:
+            if self.class_file:
+                annotation_dicts = self.get_polygons_converted(json_file)
+            else:
+                annotation_dicts = self.get_polygons(json_file)
         
         ## Fill remaining fields
         
