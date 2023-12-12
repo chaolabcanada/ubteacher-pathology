@@ -234,6 +234,27 @@ class ParseFromQuPath:
             i['bbox'] = [x0, y0, x1, y1]
             del i['coordinates']
         return anno
+    
+    def scale_polygons_qupath(self, anno):
+        x_scale = self.ref_dim[1] / self.target_dim[1]
+        y_scale = self.ref_dim[0] / self.target_dim[0]
+        for i in anno:
+            poly = []
+            # Build XYXYXY...
+            for xn, yn in i['coordinates'][0]:
+                xn = int(xn / x_scale)
+                yn = int(yn / y_scale)
+                poly.append(xn); poly.append(yn)
+            i['segmentation'] = [poly]
+            [coords] = i['coordinates']
+            # Build XYXY for bbox
+            x0 = int(coords[0][0] / x_scale)
+            y0 = int(coords[0][1] / y_scale)
+            x1 = int(coords[2][0] / x_scale)
+            y1 = int(coords[2][1] / y_scale)
+            i['bbox'] = [x0, y0, x1, y1]
+            del i['coordinates']
+        return anno   
         
     def get_boxes(self, json_file):
         with open(json_file, 'r') as f:
@@ -280,7 +301,6 @@ class ParseFromQuPath:
             k['geometry']['bbox_mode'] = 0
             if len(k['geometry']['coordinates'][0]) <= 5:
                 coords.append(next(search_recursive(k, 'geometry')))
-        
         out = self.scale_bboxes_qupath(coords)
         
         return out
@@ -289,21 +309,25 @@ class ParseFromQuPath:
     def get_polygons(self, json_file):
         with open(json_file, 'r') as f:
             data = json.load(f)
-        lesion_data = []
+        tissue_data = []
         for i in data:
             if not self.class_file:
-                if any(tissue in list(search_recursive(i, 'name')) for tissue in self.class_types):
-                    lesion_data.append(i)
-        cat_map = {tissue: i for i, tissue in enumerate(self.class_types)}
-        coords = []
-        for k in lesion_data:
-            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.qupath_classes))]
-            del k['geometry']['type']
-            unflat_coords = next(search_recursive(k, 'geometry'))
-            print(unflat_coords)
-            return
+                if any(classes in list(search_recursive(i, 'name')) for classes in self.class_types):
+                    tissue_data.append(i)
+        # create normal cat map in absence of conversion file      
+        cat_map = {cat: i for i, cat in enumerate(self.class_types)}
         
-    def get_polygons_converted(self, json_file):
+        coords = []        
+        for k in tissue_data:
+            ## add names to k 
+            k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.class_types))]
+            del k['geometry']['type']
+            k['geometry']['bbox_mode'] = 0
+            coords.append(next(search_recursive(k, 'geometry')))
+        out = self.scale_polygons_qupath(coords)
+        return out
+        
+    def get_polygons_converted(self, json_file):       
         with open(json_file, 'r') as f:
             data = json.load(f)
         tissue_data = []
@@ -323,7 +347,9 @@ class ParseFromQuPath:
             ## add names to k 
             k['geometry']['category_id'] = cat_map[next(search_with_targets(k, 'name', self.qupath_classes))]
             del k['geometry']['type']
-            
+            k['geometry']['bbox_mode'] = 0
+            coords.append(next(search_recursive(k, 'geometry')))
+        out = self.scale_polygons_qupath(coords)
         return out
     
     def get_coco_format(self, json_file):
@@ -380,7 +406,7 @@ def split_dataset(cfg, dataset_dicts):
         if cfg.SET_SEED:
             data = {'train': train_set, 'val': val_set}
             with open(cfg.DATASEED, 'w') as f:
-                json.dump(data, f)
+                json.dump(data, f, indent=4)
         return train_set, val_set
         
     
