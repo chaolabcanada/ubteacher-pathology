@@ -1,3 +1,32 @@
 # Outputs from training
 output/
 completed_outputs/
+
+# Python cache files
+__pycahce__/
+**/__pycahce__/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Git
+git
