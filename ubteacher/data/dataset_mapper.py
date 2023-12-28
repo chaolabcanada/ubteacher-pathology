@@ -158,14 +158,16 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
             out_dir = os.path.join(os.getcwd(), 'training_data_vis')
             os.makedirs(out_dir, exist_ok=True)
             n = 0
-            vis_file = dataset_dict['image_id'] + '.png'
+            vis_file = str(dataset_dict['image_id']) + '.png'
             while os.path.exists(os.path.join(out_dir, vis_file)):
                 n += 1
                 vis_file = f"{dataset_dict['image_id']}_{n}.png"
                 if n > 2: #For only 2 augmentations
                     break
-                
-            vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
+            try:    
+                vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
+            except:
+                pass
         
         # apply strong augmentation
         # We use torchvision augmentation, which is not compatiable with
@@ -209,7 +211,7 @@ class TestMapper(DatasetMapper):
         if self.isnumpy:
             image = np.load(dataset_dict["file_name"]) #np.load instead
         else:
-            image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
+            image = utils.read_image(dataset_dict["file_name"])
             utils.check_image_size(dataset_dict, image)
 
         # USER: Remove if you don't do semantic/panoptic segmentation.

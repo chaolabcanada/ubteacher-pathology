@@ -36,59 +36,61 @@ def setup(args):
 def main(args):
     
     cfg = setup(args)
-    box_only = cfg.BOX_ONLY     
-    img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
-    if cfg.DATASETS.CROSS_DATASET:
-        u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
     
-    if cfg.CLASS_CONVERTER:
-        class_file = cfg.CLASS_CONVERTER
-        classes = select_convert_annotypes(anno_dirs, class_file)
-    else:
-        print('No class converter specified. Using normal classes.')
-        class_file = None
-        classes = select_annotypes(anno_dirs)
-      
-# accumulate dataset_dicts for registration
-    dicts = []
-    for anno_dir, img_dir in zip(anno_dirs, img_dirs):
-        for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
-            id = os.path.basename(json_file).split('.')[0]
-            try:
-                original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
-                img_file = os.path.join(img_dir, id + '.npy')
-                base_dim, target_dim = get_scaling(original_img_file, img_file)
-                each_dict = ParseFromQuPath(anno_dir, 
-                                            img_dir, 
-                                            base_dim, 
-                                            target_dim, 
-                                            classes,
-                                            class_file,
-                                            box_only
-                                            ).get_coco_format(json_file)
-                dicts.append(each_dict[0])
-            except:
-                print(f"Error parsing {json_file}")
-                pass
-            
-# accumulate image info for unlabeled registration
-    if cfg.DATASETS.CROSS_DATASET:
-        unlabeled_dicts = []
-        for u_img_dir in u_img_dirs:
-            for img_file in glob.glob(os.path.join(u_img_dir, "*.npy")):
-                each_dict = ParseUnlabeled(u_img_dir).get_unlabeled_coco(img_file)
-                unlabeled_dicts.append(each_dict[0])     
+    if cfg.REGISTER:
+        box_only = cfg.BOX_ONLY
+        img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
+        if cfg.DATASETS.CROSS_DATASET:
+            u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
+        
+        if cfg.CLASS_CONVERTER:
+            class_file = cfg.CLASS_CONVERTER
+            classes = select_convert_annotypes(anno_dirs, class_file)
+        else:
+            print('No class converter specified. Using normal classes.')
+            class_file = None
+            classes = select_annotypes(anno_dirs)
+        
+    # accumulate dataset_dicts for registration
+        dicts = []
+        for anno_dir, img_dir in zip(anno_dirs, img_dirs):
+            for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
+                id = os.path.basename(json_file).split('.')[0]
+                try:
+                    original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
+                    img_file = os.path.join(img_dir, id + '.npy')
+                    base_dim, target_dim = get_scaling(original_img_file, img_file)
+                    each_dict = ParseFromQuPath(anno_dir, 
+                                                img_dir, 
+                                                base_dim, 
+                                                target_dim, 
+                                                classes,
+                                                class_file,
+                                                box_only
+                                                ).get_coco_format(json_file)
+                    dicts.append(each_dict[0])
+                except:
+                    print(f"Error parsing {json_file}")
+                    pass
+                
+    # accumulate image info for unlabeled registration
+        if cfg.DATASETS.CROSS_DATASET:
+            unlabeled_dicts = []
+            for u_img_dir in u_img_dirs:
+                for img_file in glob.glob(os.path.join(u_img_dir, "*.npy")):
+                    each_dict = ParseUnlabeled(u_img_dir).get_unlabeled_coco(img_file)
+                    unlabeled_dicts.append(each_dict[0])     
 
-    # split and register
-    if cfg.DATASETS.CROSS_DATASET:
-        train_labeled, val = split_dataset(cfg, dicts)
-        register_dataset("train_unlabeled", unlabeled_dicts, classes)
-        register_dataset("train_labeled", train_labeled, classes)
-        register_dataset("val", val, classes)
-    else:
-        train, val = split_dataset(cfg, dicts)
-        register_dataset("train", train, classes)
-        register_dataset("val", val, classes)
+        # split and register
+        if cfg.DATASETS.CROSS_DATASET:
+            train_labeled, val = split_dataset(cfg, dicts)
+            register_dataset("train_unlabeled", unlabeled_dicts, classes)
+            register_dataset("train_labeled", train_labeled, classes)
+            register_dataset("val", val, classes)
+        else:
+            train, val = split_dataset(cfg, dicts)
+            register_dataset("train", train, classes)
+            register_dataset("val", val, classes)
 
 # train
 
