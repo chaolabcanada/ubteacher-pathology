@@ -1,0 +1,82 @@
+_BASE_: "../Base-RCNN-FPN.yaml" 
+MODEL:
+  META_ARCHITECTURE: "TwoStagePseudoLabGeneralizedRCNN"
+  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
+  RESNETS:
+    DEPTH: 50
+  MASK_ON: True
+  PROPOSAL_GENERATOR:
+    NAME: "PseudoLabRPN"
+  RPN:
+    POSITIVE_FRACTION: 0.25
+    LOSS: "CrossEntropy" # don't change this or masks break
+  ROI_HEADS:
+    NAME: "StandardROIHeadsPseudoLab"
+    LOSS: "FocalLoss_BoundaryVar"
+    #LOSS: "CrossEntropy"
+    NUM_CLASSES: 4
+  ROI_BOX_HEAD:
+    BBOX_REG_LOSS_TYPE: "nlloss"
+    CLS_AGNOSTIC_BBOX_REG: true
+SOLVER:
+  LR_SCHEDULER_NAME: "WarmupMultiStepLR"
+  IMG_PER_BATCH_LABEL: 5
+  IMG_PER_BATCH_UNLABEL: 5
+  BASE_LR: 0.01
+  STEPS: (200000,)
+  MAX_ITER: 200000
+  CHECKPOINT_PERIOD: 5000
+  AMP:
+    ENABLED: False
+DATALOADER:
+  SUP_PERCENT: 100.0
+  RANDOM_DATA_SEED: 1
+  FILTER_EMPTY_ANNOTATIONS: false # if this is true, you will lose images without annotations
+DATASETS:
+  CROSS_DATASET: False
+  TRAIN: ("train",)
+  TEST: ("val",)
+SEMISUPNET:
+  Trainer: "ubteacher_rcnn"
+  PSEUDO_BBOX_SAMPLE: "thresholding"
+  PSEUDO_BBOX_SAMPLE_REG: "thresholding" # 0.5 when PSEUDO_BBOX_SAMPLE_REG = 'thresholding'
+  BBOX_THRESHOLD: 0.5
+  BBOX_THRESHOLD_REG: 0.5 # 0.5 when PSEUDO_BBOX_SAMPLE_REG = 'thresholding'
+  BBOX_CTR_THRESHOLD: 0.0
+  BBOX_CTR_THRESHOLD_REG: 0.0
+  TEACHER_UPDATE_ITER: 1
+  BURN_UP_STEP: 100000
+  EMA_KEEP_RATE: 0.9999
+  UNSUP_LOSS_WEIGHT: 3.0
+  UNSUP_REG_LOSS_WEIGHT: 0.2
+  CONSIST_CTR_LOSS: "pseudo"
+  PSEUDO_CLS_IGNORE_NEAR: False
+  PSEUDO_CTR_THRES: 0.5
+  SOFT_CLS_LABEL: False
+  CLS_LOSS_METHOD: "focal"
+  CLS_LOSS_PSEUDO_METHOD: "focal"
+  TS_BETTER: 0.1
+  CONSIST_REG_LOSS: "ts_locvar_better_nms_nll_l1"
+  ANALYSIS_PRINT_FRE: 5000
+  ANALYSIS_ACCUMLATE_FRE: 50
+TEST:
+  EVAL_PERIOD: 5000
+  EVALUATOR: "COCOeval"
+  VAL_LOSS: False
+INPUT:
+  MIN_SIZE_TRAIN: (1333,)
+  MAX_SIZE_TRAIN: 1440
+  MIN_SIZE_TRAIN_SAMPLING: "choice"
+## New stuff
+NUMPY: True
+UNLABELED_DIR: /mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/
+IMG_DIR: /mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/
+ANNO_DIR: /mnt/RSX/Datasets_pathology/
+FMT: .svs, .tif
+TRAIN_FRACTION: 0.8
+SET_SEED: True
+DATASEED: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/dataseed/tfv2_2.json
+REGISTER: True
+DEBUG: False
+BOX_ONLY: False
+CLASS_CONVERTER: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/configs/class_conversions/neoplastic.json
