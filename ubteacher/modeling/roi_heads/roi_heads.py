@@ -165,13 +165,15 @@ class StandardROIHeadsPseudoLab(StandardROIHeads):
 
         if self.training and compute_loss:
             losses, _ = self._forward_box(features, proposals, compute_loss, branch)
-            losses.update(self._forward_mask(features, proposals)) # New for mask
+            #if branch == "supervised": #Doesn't work as intended
+            #losses.update(self._forward_mask(features, proposals)) # New for mask
             return proposals, losses
         else:
             pred_instances, predictions = self._forward_box(
                 features, proposals, compute_loss, branch
             )
-            pred_instances = self.forward_with_given_boxes(features, pred_instances)
+            #if branch == "supervised": #Doesn't work as intended
+            #pred_instances = self.forward_with_given_boxes(features, pred_instances)
 
             return pred_instances, predictions
 
@@ -393,3 +395,47 @@ class StandardROIHeadsPseudoLab(StandardROIHeads):
         )
 
         return proposals_with_gt
+
+# Subclass the standard ROI heads to add masks to the forward call
+
+@ROI_HEADS_REGISTRY.register()
+class MaskROIHeadsPseudoLab(StandardROIHeadsPseudoLab):
+
+    def forward(
+        self,
+        images: ImageList,
+        features: Dict[str, torch.Tensor],
+        proposals: List[Instances],
+        targets: Optional[List[Instances]] = None,
+        compute_loss=True,
+        branch="",
+    ) -> Tuple[List[Instances], Dict[str, torch.Tensor]]:
+
+        del images
+        if self.training and compute_loss:  # apply if training loss
+            assert targets
+            # 1000 --> 512
+            if targets[0].has("scores"):  # has confidence; then weight loss
+                proposals = self.label_and_sample_proposals_pseudo(
+                    proposals, targets, branch=branch
+                )
+            else:
+                proposals = self.label_and_sample_proposals(
+                    proposals, targets, branch=branch
+                )
+
+        del targets
+
+        if self.training and compute_loss:
+            losses, _ = self._forward_box(features, proposals, compute_loss, branch)
+            #if branch == "supervised": #Doesn't work as intended
+            losses.update(self._forward_mask(features, proposals)) # New for mask
+            return proposals, losses
+        else:
+            pred_instances, predictions = self._forward_box(
+                features, proposals, compute_loss, branch
+            )
+            #if branch == "supervised": #Doesn't work as intended
+            pred_instances = self.forward_with_given_boxes(features, pred_instances)
+
+            return pred_instances, predictions
