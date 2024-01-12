@@ -14,14 +14,17 @@ import numpy as np
 import tifffile as tf
 import torch
 import json
+import glob
 import argparse
 
 from PIL import Image
 
-from ubteacher.modeling.meta_arch.rcnn import TwoStagePseudoLabGeneralizedRCNN
+from ubteacher.modeling.meta_arch.rcnn import TwoStagePseudoLabGeneralizedRCNN # required to load model
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
 from ubteacher.config import add_ubteacher_config
+from ubteacher.utils.train2_utils import (register_dataset,
+                                          ParseUnlabeled)
 
 from detectron2.config import get_cfg
 from detectron2.checkpoint import DetectionCheckpointer
@@ -127,6 +130,34 @@ if __name__ == "__main__":
         print("No category map specified. Using numerical classes.")
         
     # Register inference dataset
+    inf_dicts = []
+    for img_file in glob.glob(os.path.join(dataset_dir, "*.npy")):
+        each_dict = ParseUnlabeled(img_file).get_unlabeled_coco(img_file)
+        inf_dicts.append(each_dict)
+    
+    # Load model
+    
+    student_model = UBRCNNTeacherTrainer.build_model(cfg)
+    teacher_model = UBRCNNTeacherTrainer.build_model(cfg)
+    model = EnsembleTSModel(student_model, teacher_model)
+    model.eval()
+    
+    checkpointer = DetectionCheckpointer(model) 
+    checkpointer.load(cfg.MODEL.WEIGHTS)
+    
+    # Perform inference
+    
+    for d in inf_dicts:
+        im = np.load(d["file_name"])
+        im = torch.from_numpy(im).unsqueeze(0)
+        outputs = model(im)
+        v = Visualizer(im.squeeze(0), metadata=MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1.0)
+        v = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        plt.imshow(v.get_image()[:, :, ::-1])
+        plt.show()
+        plt.close()
+    
+    
     
     
         
