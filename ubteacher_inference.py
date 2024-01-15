@@ -1,13 +1,10 @@
-# Hacky way to resolve project paths
-sys.path.append(str(Path(os.getcwd()).parents[0]))
-sys.path.append(str(Path(os.getcwd()).parents[1]))
+
 
 # Imports
 import os
-from pathlib import Path
 import shutil
 from typing import *
-import joblib
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -17,8 +14,15 @@ import json
 import glob
 import argparse
 
-from PIL import Image
 
+import sys
+from pathlib import Path
+
+# Hacky way to resolve project paths
+sys.path.append(str(Path(os.getcwd()).parents[0]))
+sys.path.append(str(Path(os.getcwd()).parents[1]))
+
+from PIL import Image
 from ubteacher.modeling.meta_arch.rcnn import TwoStagePseudoLabGeneralizedRCNN # required to load model
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
@@ -69,13 +73,7 @@ if __name__ == "__main__":
     # Optional
     parser.add_argument(
         "-cm",
-        "--category_map",
-        metavar="CATEGORY_MAP_PATH",
-        type=str,
-        help="path to categorical mapping, ex: '/mnt/d/ROI_model/category_map.json",
-    )    
-    parser.add_argument(
-        "category_map",
+        "--category_map",        
         metavar="CATEGORY_MAP_PATH",
         type=str,
         help="path to categorical mapping, ex: '/mnt/d/ROI_model/category_map.json",
@@ -139,23 +137,29 @@ if __name__ == "__main__":
     
     student_model = UBRCNNTeacherTrainer.build_model(cfg)
     teacher_model = UBRCNNTeacherTrainer.build_model(cfg)
-    model = EnsembleTSModel(student_model, teacher_model)
+    model = EnsembleTSModel(teacher_model, student_model)
     model.eval()
     
     checkpointer = DetectionCheckpointer(model) 
     checkpointer.load(cfg.MODEL.WEIGHTS)
-    
-    # Perform inference
+
+    # Convert to batched inputs and perform inference
     
     for d in inf_dicts:
-        im = np.load(d["file_name"])
-        im = torch.from_numpy(im).unsqueeze(0)
-        outputs = model(im)
-        v = Visualizer(im.squeeze(0), metadata=MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1.0)
-        v = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-        plt.imshow(v.get_image()[:, :, ::-1])
-        plt.show()
-        plt.close()
+        raw_img = np.load(d[0]["file_name"])
+        im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
+        inputs = [{"image": im, "height": im.shape[1], "width": im.shape[2]}]
+        with torch.no_grad():
+            outputs = model.modelStudent(inputs)
+            instances = outputs[0]["instances"].to("cpu")
+            instances.get_fields()
+            print(instances.pred_classes)
+            v = Visualizer(raw_img, metadata=MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=2.0) # check how metadata list comprehension works
+            v = v.draw_instance_predictions(instances)
+            plt.imshow(v.get_image()[:, :, ::-1])
+            plt.show()
+            plt.savefig(os.path.join(args.output_dir, d[0]["file_name"].split("/")[-1].split(".")[0] + ".png"))
+            plt.close()
     
     
     
