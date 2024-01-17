@@ -6,6 +6,7 @@ from detectron2.config import get_cfg
 from detectron2.engine import default_argument_parser, default_setup, launch
 from typing import Dict, Tuple, List, Set, Iterator, Union
 import os
+import json
 import glob
 from pathlib import Path
 
@@ -36,10 +37,18 @@ def setup(args):
 def main(args):
     
     cfg = setup(args)
-    
+
     if cfg.REGISTER:
+        try:
+            if cfg.DATASET_DICTS is not None:
+                with open(cfg.DATASET_DICTS, 'r') as f:
+                    dicts = json.load(f)
+        except:
+            pass
+        
         box_only = cfg.BOX_ONLY
         img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
+        
         if cfg.DATASETS.CROSS_DATASET:
             u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
         
@@ -50,6 +59,11 @@ def main(args):
             print('No class converter specified. Using normal classes.')
             class_file = None
             classes = select_annotypes(anno_dirs)
+            
+        with open(cfg.CLASS_MAP, 'w') as f:
+            cat_map = {i: classes[i] for i in range(len(classes))}
+            f.write(json.dumps(cat_map))
+                
         
     # accumulate dataset_dicts for registration
         dicts = []
