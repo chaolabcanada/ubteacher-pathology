@@ -119,6 +119,11 @@ if __name__ == "__main__":
     cfg.MODEL.WEIGHTS = model_path
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = threshold
     
+    # Create output folder
+    
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    
     # Load cat map
     if args.category_map:
         with open(args.category_map) as json_file:
@@ -150,13 +155,12 @@ if __name__ == "__main__":
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
         inputs = [{"image": im, "height": im.shape[1], "width": im.shape[2]}]
         with torch.no_grad():
-            outputs = model.modelStudent(inputs)
+            outputs = model.modelTeacher(inputs)
             instances = outputs[0]["instances"].to("cpu")
             instances.get_fields()
-            print(instances.pred_classes)
             v = Visualizer(raw_img, metadata=MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=2.0) # check how metadata list comprehension works
             v = v.draw_instance_predictions(instances)
-            plt.imshow(v.get_image()[:, :, ::-1])
+            plt.imshow(v.get_image())
             plt.show()
             plt.savefig(os.path.join(args.output_dir, d[0]["file_name"].split("/")[-1].split(".")[0] + ".png"))
             plt.close()
