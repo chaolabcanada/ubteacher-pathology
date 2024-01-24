@@ -69,10 +69,11 @@ def custom_visualizer(img, instances, gt_instances = None, cat_map = None):
         # Loop over gt instances and draw boxes
         for i in range(len(gt_instances)):
             if cat_map:
-                cat = cat_map[str(gt_instances[i].gt_classes.numpy()[0])]
+                cat = cat_map[str(list(gt_instances.keys()[i]))]
             else:
                 cat = gt_instances[i].gt_classes.numpy()[0]
-            x1, y1, x2, y2 = gt_instances[i].gt_boxes.tensor.numpy()[0]
+            x1, y1, x2, y2 = gt_instances[i].values()[0]
+            print(x1, y1, x2, y2)
             w = x2 - x1
             h = y2 - y1
             rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='g',facecolor='none')
@@ -80,7 +81,7 @@ def custom_visualizer(img, instances, gt_instances = None, cat_map = None):
             ax.text(x1, y1, cat, fontsize=12, color='g')
     except:
         pass
-            
+    
         return fig, ax
 
 if __name__ == "__main__":
@@ -174,6 +175,7 @@ if __name__ == "__main__":
     mask = args.mask
     threshold = args.threshold
     val_mode = args.validation
+    gt_dir = args.ground_truth
     
     # Load config
     cfg = get_cfg()
@@ -208,10 +210,7 @@ if __name__ == "__main__":
     else:
         imgs = glob.glob(os.path.join(dataset_dir, "*.npy"))
     
-    # get ground truth annos. 
-    gt_instances = 
-        
-      
+                  
     # Get inference dicts
     inf_dicts = []
     for img_file in imgs:
@@ -238,7 +237,7 @@ if __name__ == "__main__":
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
             instances.get_fields()
-            fig, ax = custom_visualizer(raw_img, instances, gt_instances, cat_map = cat_map)
+            fig, ax = custom_visualizer(raw_img, instances, cat_map = cat_map)
             plt.show()
             plt.savefig(os.path.join(args.output_dir, d[0]["file_name"].split('/')[-1].split('.')[0] + '.png'))
             plt.close()
