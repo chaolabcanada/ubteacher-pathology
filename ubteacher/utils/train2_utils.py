@@ -254,7 +254,39 @@ class ParseFromQuPath:
             y1 = int(coords[2][1] / y_scale)
             i['bbox'] = [x0, y0, x1, y1]
             del i['coordinates']
-        return anno   
+        return anno
+    
+    def scale_back_to_qupath(self, anno, mode='box'):
+        x_scale = self.target_dim[1] / self.ref_dim[1]
+        y_scale = self.target_dim[0] / self.ref_dim[0]
+        if mode == 'box':
+            for i in anno:
+                [coords] = i['coordinates']
+                # First, build XYXY
+                x0 = int(coords[0][0] * x_scale)
+                y0 = int(coords[0][1] * y_scale)
+                x1 = int(coords[2][0] * x_scale)
+                y1 = int(coords[2][1] * y_scale)
+                i['bbox'] = [x0, y0, x1, y1]
+                del i['coordinates']
+        else:
+            for i in anno:
+                poly = []
+                # Build XYXYXY...
+                for xn, yn in i['coordinates'][0]:
+                    xn = int(xn / x_scale)
+                    yn = int(yn / y_scale)
+                    poly.append(xn); poly.append(yn)
+                i['segmentation'] = [poly]
+                [coords] = i['coordinates']
+                # Build XYXY for bbox
+                x0 = int(coords[0][0] / x_scale)
+                y0 = int(coords[0][1] / y_scale)
+                x1 = int(coords[2][0] / x_scale)
+                y1 = int(coords[2][1] / y_scale)
+                i['bbox'] = [x0, y0, x1, y1]
+                del i['coordinates']
+        return anno
         
     def get_boxes(self, json_file):
         with open(json_file, 'r') as f:
