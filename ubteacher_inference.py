@@ -36,7 +36,7 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import DatasetCatalog, MetadataCatalog
 
-def custom_visualizer(img, instances, gt_instances = None, cat_map = None):
+def custom_visualizer(img_id, img, instances, gt_instances = None, cat_map = None):
     """
     Custom visualizer for UBTeacher2 inference.
     """
@@ -65,24 +65,59 @@ def custom_visualizer(img, instances, gt_instances = None, cat_map = None):
         except:
             pass
     
-    try: 
-        # Loop over gt instances and draw boxes
-        for i in range(len(gt_instances)):
-            if cat_map:
-                cat = cat_map[str(list(gt_instances.keys()[i]))]
-            else:
-                cat = gt_instances[i].gt_classes.numpy()[0]
-            x1, y1, x2, y2 = gt_instances[i].values()[0]
-            print(x1, y1, x2, y2)
-            w = x2 - x1
-            h = y2 - y1
-            rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='g',facecolor='none')
-            ax.add_patch(rect)
-            ax.text(x1, y1, cat, fontsize=12, color='g')
-    except:
-        pass
-    
+    # Loop over ground truth instances and draw boxes
+    if gt_instances is not None:
+        #print(gt_instances[img_id])
+        
         return fig, ax
+    
+def qupath_coordspace(dir):
+    """
+    Convert instances to QuPath coordinate space.
+
+    Input: list of annotations to be converted from tissue space back to original space
+    Output: list of annotations in original QuPath compatible space and list of annotations in tissue space
+    """
+
+    annos = glob.glob(os.path.join(dir, "*.json"))
+    scaled = {}
+    unscaled = {}
+    for file in annos:
+        with open(file) as f:
+            ddict = json.load(f)
+        img_id = file.split('/')[-1].split('.')[0]
+        x_offset = ddict['tissue_xyxy'][0]
+        y_offset = ddict['tissue_xyxy'][1]
+        x_scale = ddict['original_width'] / ddict['width']
+        y_scale = ddict['original_height'] / ddict['height']
+        # Convert to tissue coord. space
+        each_scaled = []
+        each_unscaled = []
+        for i in range(len(ddict['annotations'])):
+            cat = ddict['annotations'][i]['category_id']
+            bbox = ddict['annotations'][i]['bbox']
+            poly = ddict['annotations'][i]['segmentation'][0]
+            if len(poly) > 4:
+                each_unscaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
+            else:
+                each_unscaled.append({'category_id': cat, 'bbox': bbox})
+            for j in range(len(bbox)):
+                if j % 2 == 0:
+                    bbox[j] = round(bbox[j] * x_scale + x_offset, 1)
+                else:
+                    bbox[j] = round(bbox[j] * y_scale + y_offset, 1)
+            if len(poly) > 4:
+                for k in range(len(poly)):
+                    if i % 2 == 0:
+                        poly[k] = round(poly[k] * x_scale + x_offset, 1)
+                    else:
+                        poly[k] = round(poly[k] * y_scale + y_offset, 1)
+            else:
+                poly = None
+            each_scaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
+        scaled.update({img_id: each_scaled})
+        unscaled.update({img_id: each_unscaled})
+    return scaled, unscaled
 
 if __name__ == "__main__":
     # Necessary
@@ -103,7 +138,7 @@ if __name__ == "__main__":
         type=str,
         help="path to the training config file, ex: '/mnt/d/ROI_model/config.yaml'",
     )
-    
+        
     parser.add_argument(
         "output_dir",
         metavar="OUTPUT_DIRECTORY",
@@ -124,11 +159,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-gt",
         "--ground_truth",
-        metavar="GROUND_TRUTH_DIRECTORY",
-        type=str,
         help="path to ground truth directory",
     )
-    
     parser.add_argument(
         "-d",
         "--data_dir",
@@ -177,9 +209,7 @@ if __name__ == "__main__":
     val_mode = args.validation
     gt_dir = args.ground_truth
     
-    # Load config
     cfg = get_cfg()
-    add_ubteacher_config(cfg)
     cfg.set_new_allowed(True)
     cfg.merge_from_file(config_path)
     cfg.merge_from_list(args.opts)
@@ -198,6 +228,8 @@ if __name__ == "__main__":
     else:
         cat_map = None
         print("No category map specified. Using numerical classes.")
+    
+    gt_qupath, gt_tissue = qupath_coordspace(gt_dir)
         
     # If validation mode, get dataseed to perform inference on validation set
     
@@ -209,8 +241,7 @@ if __name__ == "__main__":
             imgs.append(dict['file_name'])
     else:
         imgs = glob.glob(os.path.join(dataset_dir, "*.npy"))
-    
-                  
+       
     # Get inference dicts
     inf_dicts = []
     for img_file in imgs:
@@ -230,17 +261,21 @@ if __name__ == "__main__":
     # Convert to batched inputs and perform inference
     
     for d in inf_dicts:
+        print(d)
         raw_img = np.load(d[0]["file_name"])
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
+        img_id = d[0]['file_name'].split('/')[-1].split('.')[0]
         inputs = [{"image": im, "height": im.shape[1], "width": im.shape[2]}]
         with torch.no_grad():
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
             instances.get_fields()
-            fig, ax = custom_visualizer(raw_img, instances, cat_map = cat_map)
-            plt.show()
-            plt.savefig(os.path.join(args.output_dir, d[0]["file_name"].split('/')[-1].split('.')[0] + '.png'))
+            fig, ax = custom_visualizer(img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
+            #plt.show()
+            plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
+            
+    # Convert outputs to QuPath coordinate space
 
   
     
