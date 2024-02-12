@@ -4,6 +4,7 @@
 import os
 import shutil
 from typing import *
+from time import perf_counter
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -64,14 +65,47 @@ def custom_visualizer(img_id, img, instances, gt_instances = None, cat_map = Non
             ax.imshow(polygon, alpha=0.5)
         except:
             pass
-    
     # Loop over ground truth instances and draw boxes
     if gt_instances is not None:
-        #print(gt_instances[img_id])
-        
-        return fig, ax
+        for i in range(len(gt_instances[img_id])):
+            if cat_map:
+                gt_cat = cat_map[str(gt_instances[img_id][i]['category_id'])]
+            else:
+                gt_cat = gt_instances[img_id][i]['category_id']
+            box = gt_instances[img_id][i]['bbox']
+            x1, y1, x2, y2 = box
+            gt_rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor='g',facecolor='none')
+            ax.add_patch(gt_rect)
+            ax.text(x1, y1, gt_cat, fontsize=9, color='g')
+            try:
+                gt_poly = gt_instances[img_id][i]['segmentation']
+                gt_poly = np.array(gt_poly).reshape((int(len(gt_poly)/2), 2))
+                ax.fill(gt_poly[:, 0], gt_poly[:, 1], alpha=0.5, color='g')
+            except:
+                print("No segmentation for ground truth annotation.")
+                pass
+    return fig, ax
     
-def qupath_coordspace(dir):
+def parse_gt(gt_dir):
+    """
+    Parse ground truth annotations.
+    """
+    annos = glob.glob(os.path.join(gt_dir, "*.json"))
+    gt_dict = {}
+    for file in annos:
+        with open(file) as f:
+            ddict = json.load(f)
+        img_id = file.split('/')[-1].split('.')[0]
+        each_gt = []
+        for i in range(len(ddict['annotations'])):
+            cat = ddict['annotations'][i]['category_id']
+            bbox = ddict['annotations'][i]['bbox']
+            poly = ddict['annotations'][i]['segmentation'][0]
+            each_gt.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
+        gt_dict.update({img_id: each_gt})
+    return gt_dict
+    
+def qupath_coordspace(dir, tissue_crop = True):
     """
     Convert instances to QuPath coordinate space.
 
@@ -81,26 +115,23 @@ def qupath_coordspace(dir):
 
     annos = glob.glob(os.path.join(dir, "*.json"))
     scaled = {}
-    unscaled = {}
     for file in annos:
         with open(file) as f:
             ddict = json.load(f)
         img_id = file.split('/')[-1].split('.')[0]
-        x_offset = ddict['tissue_xyxy'][0]
-        y_offset = ddict['tissue_xyxy'][1]
-        x_scale = ddict['original_width'] / ddict['width']
-        y_scale = ddict['original_height'] / ddict['height']
+        if tissue_crop:
+            x_offset = ddict['tissue_xyxy'][0]
+            y_offset = ddict['tissue_xyxy'][1]
+            x_scale = ddict['original_width'] / ddict['width']
+            y_scale = ddict['original_height'] / ddict['height']
+        else:
+            x_offset, y_offset, x_scale, y_scale = 0, 0, 1, 1
         # Convert to tissue coord. space
         each_scaled = []
-        each_unscaled = []
         for i in range(len(ddict['annotations'])):
             cat = ddict['annotations'][i]['category_id']
             bbox = ddict['annotations'][i]['bbox']
             poly = ddict['annotations'][i]['segmentation'][0]
-            if len(poly) > 4:
-                each_unscaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
-            else:
-                each_unscaled.append({'category_id': cat, 'bbox': bbox})
             for j in range(len(bbox)):
                 if j % 2 == 0:
                     bbox[j] = round(bbox[j] * x_scale + x_offset, 1)
@@ -116,8 +147,7 @@ def qupath_coordspace(dir):
                 poly = None
             each_scaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
         scaled.update({img_id: each_scaled})
-        unscaled.update({img_id: each_unscaled})
-    return scaled, unscaled
+    return scaled
 
 if __name__ == "__main__":
     # Necessary
@@ -192,6 +222,13 @@ if __name__ == "__main__":
         help="set detection threshold; higher=more stringent. default=0.7",
     )
     parser.add_argument(
+        "-t",
+        "--tissue_cropping",
+        action="store_true",
+        default = False,
+        help="use a model which crops out tissue before inference",
+    )
+    parser.add_argument(
         "-o",
         "--opts",
         nargs=argparse.REMAINDER,
@@ -208,6 +245,7 @@ if __name__ == "__main__":
     threshold = args.threshold
     val_mode = args.validation
     gt_dir = args.ground_truth
+    tissue_cropping = args.tissue_cropping
     
     cfg = get_cfg()
     cfg.set_new_allowed(True)
@@ -228,19 +266,24 @@ if __name__ == "__main__":
     else:
         cat_map = None
         print("No category map specified. Using numerical classes.")
-    
-    gt_qupath, gt_tissue = qupath_coordspace(gt_dir)
         
     # If validation mode, get dataseed to perform inference on validation set
-    
+        
     if val_mode:
+        gt_qupath = qupath_coordspace(gt_dir, tissue_cropping)
+        gt_tissue = parse_gt(gt_dir)
+    
         with open(os.path.join(cfg.DATASEED)) as f:
             dataset_seed = json.load(f)
         imgs = []
-        for dict in dataset_seed['val']:
-            imgs.append(dict['file_name'])
+        
+        try: # with individual dicts
+            for dict in dataset_seed['val']:
+                imgs.append(dict['file_name'])
+        except: # with list of files
+            imgs = dataset_seed['val']['images']
     else:
-        imgs = glob.glob(os.path.join(dataset_dir, "*.npy"))
+        imgs = glob.glob(dataset_dir + "/*.npy")
        
     # Get inference dicts
     inf_dicts = []
@@ -258,10 +301,9 @@ if __name__ == "__main__":
     checkpointer = DetectionCheckpointer(model) 
     checkpointer.load(cfg.MODEL.WEIGHTS)   
 
+    global_tick = perf_counter()
     # Convert to batched inputs and perform inference
-    
     for d in inf_dicts:
-        print(d)
         raw_img = np.load(d[0]["file_name"])
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
         img_id = d[0]['file_name'].split('/')[-1].split('.')[0]
@@ -270,12 +312,19 @@ if __name__ == "__main__":
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
             instances.get_fields()
-            fig, ax = custom_visualizer(img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
+            if val_mode:
+                fig, ax = custom_visualizer(img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
+            else:
+                fig, ax = custom_visualizer(img_id, raw_img, instances, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
-            
+    print(f"Total time: {perf_counter() - global_tick} for {len(inf_dicts)} images")
+    print(f"avg. {round((perf_counter() - global_tick)/len(inf_dicts), 2)}s per image)")
+    
     # Convert outputs to QuPath coordinate space
+      
+    
 
   
     
