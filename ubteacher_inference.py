@@ -13,8 +13,10 @@ import tifffile as tf
 import torch
 import json
 import glob
+import itertools
 import argparse
-
+import copy
+import cv2
 
 import sys
 from pathlib import Path
@@ -24,20 +26,23 @@ sys.path.append(str(Path(os.getcwd()).parents[0]))
 sys.path.append(str(Path(os.getcwd()).parents[1]))
 
 from PIL import Image
+from shapely.geometry import Polygon
 from ubteacher.modeling.meta_arch.rcnn import TwoStagePseudoLabGeneralizedRCNN # required to load model
 from detectron2.engine import DefaultPredictor
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
 from ubteacher.config import add_ubteacher_config
 from ubteacher.utils.train2_utils import (register_dataset,
-                                          ParseUnlabeled)
+                                          ParseUnlabeled, merge_bboxes)
 
 from detectron2.config import get_cfg
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import DatasetCatalog, MetadataCatalog
 
-def custom_visualizer(img_id, img, instances, gt_instances = None, cat_map = None):
+## TODO: Cat map support for merged boxes :o
+
+def custom_visualizer(img_id, img, instances, gt_instances = None, merged_bboxes = None, cat_map = None):
     """
     Custom visualizer for UBTeacher2 inference.
     """
@@ -47,24 +52,27 @@ def custom_visualizer(img_id, img, instances, gt_instances = None, cat_map = Non
     ax.imshow(img)
     
     # Loop over instances and draw boxes
-    for i in range(len(instances)):
-        if cat_map:
-            cat = cat_map[str(instances[i].pred_classes.numpy()[0])]
-        else:
-            cat = instances[i].pred_classes.numpy()[0]
-        x1, y1, x2, y2 = instances[i].pred_boxes.tensor.numpy()[0]
-        w = x2 - x1
-        h = y2 - y1
-        rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
-        ax.add_patch(rect)
-        ax.text(x1, y1, cat, fontsize=9, color='r')
-        ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i].scores.numpy()[0], 2)), fontsize=7, color='r')
-        
-        try:
-            polygon = instances[i].pred_masks.numpy()[0]
-            ax.imshow(polygon, alpha=0.5)
-        except:
-            pass
+    if merged_bboxes:
+        for i in range(len(merged_bboxes)):
+            x1, y1, x2, y2 = merged_bboxes[i]
+            w = x2 - x1
+            h = y2 - y1
+            rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
+            ax.add_patch(rect)
+            ax.text(x1, y1, "merged", fontsize=9, color='r')
+    else:
+        for i in range(len(instances)):
+            if cat_map:
+                cat = cat_map[str(instances[i].pred_classes.numpy()[0])]
+            else:
+                cat = instances[i].pred_classes.numpy()[0]
+            x1, y1, x2, y2 = instances[i].pred_boxes.tensor.numpy()[0]
+            w = x2 - x1
+            h = y2 - y1
+            rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
+            ax.add_patch(rect)
+            ax.text(x1, y1, cat, fontsize=9, color='r')
+            ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i].scores.numpy()[0], 2)), fontsize=7, color='r')
     # Loop over ground truth instances and draw boxes
     if gt_instances is not None:
         for i in range(len(gt_instances[img_id])):
@@ -149,30 +157,19 @@ def qupath_coordspace(dir, tissue_crop = True):
         scaled.update({img_id: each_scaled})
     return scaled
 
+
 def merge_boxes(instances):
     """
     Merge overlapping boxes.
     """
     # Convert to list
     inst_list = []
+    class_list = []
     for i in range(len(instances)):
         inst_list.append(instances[i].pred_boxes.tensor.numpy()[0])
+        class_list.append(instances[i].pred_classes.numpy()[0])
     inst_list = [list(x) for x in inst_list]
-    # Merge boxes
-    merged = []
-    while len(inst_list) > 0:
-        current = inst_list[0]
-        inst_list.pop(0)
-        for i in range(len(inst_list)):
-            if (current[0] < inst_list[i][2] and current[2] > inst_list[i][0] and current[1] < inst_list[i][3] and current[3] > inst_list[i][1]):
-                current[0] = min(current[0], inst_list[i][0])
-                current[1] = min(current[1], inst_list[i][1])
-                current[2] = max(current[2], inst_list[i][2])
-                current[3] = max(current[3], inst_list[i][3])
-                inst_list.pop(i)
-                break
-        merged.append(current)
-    return merged
+    
 
 if __name__ == "__main__":
     # Necessary
@@ -336,9 +333,10 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
-            print(merge_boxes(instances))
+            merged = merge_boxes(instances)
             if val_mode:
-                fig, ax = custom_visualizer(img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
+                fig, ax = custom_visualizer(
+                    img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
             else:
                 fig, ax = custom_visualizer(img_id, raw_img, instances, cat_map = cat_map)
             #plt.show()
