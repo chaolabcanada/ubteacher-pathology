@@ -149,6 +149,31 @@ def qupath_coordspace(dir, tissue_crop = True):
         scaled.update({img_id: each_scaled})
     return scaled
 
+def merge_boxes(instances):
+    """
+    Merge overlapping boxes.
+    """
+    # Convert to list
+    inst_list = []
+    for i in range(len(instances)):
+        inst_list.append(instances[i].pred_boxes.tensor.numpy()[0])
+    inst_list = [list(x) for x in inst_list]
+    # Merge boxes
+    merged = []
+    while len(inst_list) > 0:
+        current = inst_list[0]
+        inst_list.pop(0)
+        for i in range(len(inst_list)):
+            if (current[0] < inst_list[i][2] and current[2] > inst_list[i][0] and current[1] < inst_list[i][3] and current[3] > inst_list[i][1]):
+                current[0] = min(current[0], inst_list[i][0])
+                current[1] = min(current[1], inst_list[i][1])
+                current[2] = max(current[2], inst_list[i][2])
+                current[3] = max(current[3], inst_list[i][3])
+                inst_list.pop(i)
+                break
+        merged.append(current)
+    return merged
+
 if __name__ == "__main__":
     # Necessary
     parser = argparse.ArgumentParser(
@@ -270,7 +295,6 @@ if __name__ == "__main__":
     # If validation mode, get dataseed to perform inference on validation set
         
     if val_mode:
-        gt_qupath = qupath_coordspace(gt_dir, tissue_cropping)
         gt_tissue = parse_gt(gt_dir)
     
         with open(os.path.join(cfg.DATASEED)) as f:
@@ -308,10 +332,11 @@ if __name__ == "__main__":
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
         img_id = d[0]['file_name'].split('/')[-1].split('.')[0]
         inputs = [{"image": im, "height": im.shape[1], "width": im.shape[2]}]
+        
         with torch.no_grad():
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
-            instances.get_fields()
+            print(merge_boxes(instances))
             if val_mode:
                 fig, ax = custom_visualizer(img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
             else:
