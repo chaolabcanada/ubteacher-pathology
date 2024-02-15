@@ -40,7 +40,7 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import DatasetCatalog, MetadataCatalog
 
-## TODO: Cat map support for merged boxes :o
+## TODO: Cat map support for merged boxes
 
 def custom_visualizer(img_id, img, instances, gt_instances = None, merged_bboxes = None, cat_map = None):
     """
@@ -59,20 +59,22 @@ def custom_visualizer(img_id, img, instances, gt_instances = None, merged_bboxes
             h = y2 - y1
             rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
             ax.add_patch(rect)
-            ax.text(x1, y1, "merged", fontsize=9, color='r')
     else:
         for i in range(len(instances)):
             if cat_map:
                 cat = cat_map[str(instances[i].pred_classes.numpy()[0])]
             else:
-                cat = instances[i].pred_classes.numpy()[0]
-            x1, y1, x2, y2 = instances[i].pred_boxes.tensor.numpy()[0]
+                cat = instances[i]['category_id']
+            score = instances[i]['score']
+            if score < threshold:
+                continue
+            x1, y1, x2, y2 = instances[i]['bbox']
             w = x2 - x1
             h = y2 - y1
             rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
             ax.add_patch(rect)
             ax.text(x1, y1, cat, fontsize=9, color='r')
-            ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i].scores.numpy()[0], 2)), fontsize=7, color='r')
+            ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i]['score'], 2)), fontsize=7, color='r')
     # Loop over ground truth instances and draw boxes
     if gt_instances is not None:
         for i in range(len(gt_instances[img_id])):
@@ -112,6 +114,15 @@ def parse_gt(gt_dir):
             each_gt.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
         gt_dict.update({img_id: each_gt})
     return gt_dict
+
+def filter_intensity(img, instance_dicts, intensity_thresh = 50):
+    for i in range(len(instance_dicts)):
+        x1, y1, x2, y2 = instance_dicts[i]['bbox']
+        img_crop = img[int(y1):int(y2), int(x1):int(x2)]
+        # Remove instances that are mostly white (background)
+        if np.mean(img_crop) > np.percentile(img, intensity_thresh):
+            instance_dicts[i]['score'] = 0
+    return instance_dicts
     
 def qupath_coordspace(dir, tissue_crop = True):
     """
@@ -155,21 +166,7 @@ def qupath_coordspace(dir, tissue_crop = True):
                 poly = None
             each_scaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
         scaled.update({img_id: each_scaled})
-    return scaled
-
-
-def merge_boxes(instances):
-    """
-    Merge overlapping boxes.
-    """
-    # Convert to list
-    inst_list = []
-    class_list = []
-    for i in range(len(instances)):
-        inst_list.append(instances[i].pred_boxes.tensor.numpy()[0])
-        class_list.append(instances[i].pred_classes.numpy()[0])
-    inst_list = [list(x) for x in inst_list]
-    
+    return scaled    
 
 if __name__ == "__main__":
     # Necessary
@@ -333,12 +330,19 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = used_model(inputs)
             instances = outputs[0]["instances"].to("cpu")
-            merged = merge_boxes(instances)
+            instance_dicts = []
+            for i in range(len(instances)):
+                instance_dicts.append({'category_id': instances[i].pred_classes.numpy()[0], 
+                                       'bbox': instances[i].pred_boxes.tensor.numpy()[0],
+                                       'score': instances[i].scores.numpy()[0]})
+            filtered = filter_intensity(raw_img, instance_dicts)
+            #TODO: nuc. seg. here
+            merged = merge_bboxes(filtered, threshold)
             if val_mode:
                 fig, ax = custom_visualizer(
-                    img_id, raw_img, instances, gt_tissue, cat_map = cat_map)
+                    img_id, raw_img, filtered, gt_tissue, merged_bboxes = merged, cat_map = cat_map)
             else:
-                fig, ax = custom_visualizer(img_id, raw_img, instances, cat_map = cat_map)
+                fig, ax = custom_visualizer(img_id, raw_img, filtered, merged_bboxes = merged, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
