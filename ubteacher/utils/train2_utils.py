@@ -468,11 +468,14 @@ def register_dataset(dset_type: str, dataset_dicts: Dict, classes: List[str]):
         return MetadataCatalog
 
 
-def merge_bboxes(instances, delta_x=0.1, delta_y=0.1):
+def merge_bboxes(instance_dicts, threshold, delta_x=0.1, delta_y=0.1):
 
     bboxes = []
-    for i in range(len(instances)):
-        bboxes.append(instances[i].pred_boxes.tensor.numpy()[0])
+    for i in range(len(instance_dicts)):
+        score = instance_dicts[i]['score']
+        if score < threshold:
+            continue
+        bboxes.append(instance_dicts[i]['bbox'])
     """
     Arguments:
         bboxes {list} -- list of bounding boxes with each bounding box is a list [xmin, ymin, xmax, ymax]

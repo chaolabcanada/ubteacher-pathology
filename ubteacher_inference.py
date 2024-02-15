@@ -35,6 +35,8 @@ from ubteacher.config import add_ubteacher_config
 from ubteacher.utils.train2_utils import (register_dataset,
                                           ParseUnlabeled, merge_bboxes)
 
+from tiatoolbox.models.engine.nucleus_instance_segmentor import NucleusInstanceSegmentor
+
 from detectron2.config import get_cfg
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils.visualizer import Visualizer
@@ -123,6 +125,54 @@ def filter_intensity(img, instance_dicts, intensity_thresh = 50):
         if np.mean(img_crop) > np.percentile(img, intensity_thresh):
             instance_dicts[i]['score'] = 0
     return instance_dicts
+
+def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
+    """
+    Perform nuclear segmentation on an image.
+    """
+    for i in range(len(instance_dicts)):
+        x1, y1, x2, y2 = instance_dicts[i]['bbox']
+        # get center bbox region
+        xc = int((x1 + x2) / 2)
+        yc= int((y1 + y2) / 2)
+        base_mask = np.zeros(img.shape[:2], dtype = "uint8")
+        base_mask[xc - size:xc + size, yc - size:yc + size] = 1
+        cv2.imwrite(os.path.join(args.output_dir, img_id + '_mask.png'), base_mask)
+        
+        inst_segmentor = NucleusInstanceSegmentor(
+            pretrained_model="hovernet_fast-pannuke",
+            batch_size=16,
+            auto_generate_mask=False,
+            verbose=False,
+        )
+        wsi_output = inst_segmentor.predict(
+            wsi_path,
+            masks=[os.path.join(args.output_dir, img_id + '_mask.png')],
+            save_dir=args.output_dir + "/nuc_seg" + str(img_id),
+            mode="wsi",
+            on_gpu=True,
+            crash_on_exception=True,            
+        )
+        
+        neoplastic = []
+        all = []
+        
+        wsi_pred = joblib.load(wsi_output)
+        for n in nuc_id_list:
+            all.append(n)
+            if wsi_pred[n]["type"] == 0:
+                neoplastic.append(n)
+        if len(neoplastic)/len(all) < nuc_th:
+            instance_dicts[i]['score'] = 0
+        if len(all) < 10:
+            instance_dicts[i]['score'] = 0
+    try:
+        os.remove(os.path.join(args.output_dir, img_id + '_mask.png'))
+        shutil.rmtree(args.output_dir + "/nuc_seg" + str(img_id))
+    except FileNotFoundError:
+        pass
+    
+    return instance_dicts
     
 def qupath_coordspace(dir, tissue_crop = True):
     """
@@ -198,6 +248,14 @@ if __name__ == "__main__":
     # Optional
     
     parser.add_argument(
+        "-wsi",
+        "--wsi_dir",
+        metavar="WSI_DIRECTORY",
+        type=str,
+        help="path to WSI directory for nuc. seg.",
+    )
+    
+    parser.add_argument(
         "-v",
         "--validation",
         action="store_true",
@@ -260,6 +318,7 @@ if __name__ == "__main__":
     model_path = args.model
     dataset_dir = args.data_dir
     config_path = args.config
+    wsi_dir = args.wsi_dir
     mask = args.mask
     threshold = args.threshold
     val_mode = args.validation
@@ -323,6 +382,7 @@ if __name__ == "__main__":
     # Convert to batched inputs and perform inference
     for d in inf_dicts:
         raw_img = np.load(d[0]["file_name"])
+        wsi_path = os.path.join(wsi_dir, d[0]["file_name"].split('/')[-1].split('.')[0] + '.svs')
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
         img_id = d[0]['file_name'].split('/')[-1].split('.')[0]
         inputs = [{"image": im, "height": im.shape[1], "width": im.shape[2]}]
@@ -336,13 +396,14 @@ if __name__ == "__main__":
                                        'bbox': instances[i].pred_boxes.tensor.numpy()[0],
                                        'score': instances[i].scores.numpy()[0]})
             filtered = filter_intensity(raw_img, instance_dicts)
+            final = nuc_seg(raw_img, filtered, wsi_path)
             #TODO: nuc. seg. here
             merged = merge_bboxes(filtered, threshold)
             if val_mode:
                 fig, ax = custom_visualizer(
-                    img_id, raw_img, filtered, gt_tissue, merged_bboxes = merged, cat_map = cat_map)
+                    img_id, raw_img, final, gt_tissue, merged_bboxes = merged, cat_map = cat_map)
             else:
-                fig, ax = custom_visualizer(img_id, raw_img, filtered, merged_bboxes = merged, cat_map = cat_map)
+                fig, ax = custom_visualizer(img_id, raw_img, final, merged_bboxes = merged, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
