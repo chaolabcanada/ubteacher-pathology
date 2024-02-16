@@ -17,6 +17,8 @@ import itertools
 import argparse
 import copy
 import cv2
+import shutil
+import joblib
 
 import sys
 from pathlib import Path
@@ -131,13 +133,19 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
     Perform nuclear segmentation on an image.
     """
     for i in range(len(instance_dicts)):
+        img_id = wsi_path.split('/')[-1].split('.')[0]
+        nuc_path = os.path.join(args.output_dir, 'nuc_masks', img_id + '.png')
+        out_dir = os.path.join(args.output_dir, 'nuc_seg', img_id)
+        
         x1, y1, x2, y2 = instance_dicts[i]['bbox']
         # get center bbox region
         xc = int((x1 + x2) / 2)
         yc= int((y1 + y2) / 2)
         base_mask = np.zeros(img.shape[:2], dtype = "uint8")
         base_mask[xc - size:xc + size, yc - size:yc + size] = 1
-        cv2.imwrite(os.path.join(args.output_dir, img_id + '_mask.png'), base_mask)
+        if not os.path.exists(os.path.join(args.output_dir, 'nuc_masks')):
+            os.makedirs(os.path.join(args.output_dir, 'nuc_masks'))
+        cv2.imwrite(nuc_path, base_mask)
         
         inst_segmentor = NucleusInstanceSegmentor(
             pretrained_model="hovernet_fast-pannuke",
@@ -145,10 +153,16 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
             auto_generate_mask=False,
             verbose=False,
         )
+        
+        if os.path.exists(out_dir):
+            shutil.rmtree(out_dir)
+            
+        print(nuc_path)
+            
         wsi_output = inst_segmentor.predict(
-            wsi_path,
-            masks=[os.path.join(args.output_dir, img_id + '_mask.png')],
-            save_dir=args.output_dir + "/nuc_seg" + str(img_id),
+            [wsi_path],
+            masks=[nuc_path],
+            save_dir=out_dir,
             mode="wsi",
             on_gpu=True,
             crash_on_exception=True,            
@@ -166,12 +180,10 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
             instance_dicts[i]['score'] = 0
         if len(all) < 10:
             instance_dicts[i]['score'] = 0
-    try:
-        os.remove(os.path.join(args.output_dir, img_id + '_mask.png'))
-        shutil.rmtree(args.output_dir + "/nuc_seg" + str(img_id))
-    except FileNotFoundError:
-        pass
-    
+        try:
+            os.remove(mask_path)
+        except FileNotFoundError:
+            pass
     return instance_dicts
     
 def qupath_coordspace(dir, tissue_crop = True):
