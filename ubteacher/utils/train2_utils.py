@@ -136,11 +136,6 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     for img_dir in img_dirs:
         base_dir = os.path.basename(img_dir)
         anno_dir = os.path.join(anno_parent, base_dir, anno_subdir)
-        if os.path.exists(anno_dir):
-            total_annos.append(anno_dir)
-        else:
-            raise ValueError(f'Annotation folder not found for {base_dir}')
-    
     return img_dirs, total_annos
 
         
@@ -468,14 +463,13 @@ def register_dataset(dset_type: str, dataset_dicts: Dict, classes: List[str]):
         return MetadataCatalog
 
 
-def merge_bboxes(instance_dicts, threshold, delta_x=0.1, delta_y=0.1):
+def merge_bboxes(instance_dicts, threshold, delta_x=0.2, delta_y=0.2):
 
     bboxes = []
     for i in range(len(instance_dicts)):
         score = instance_dicts[i]['score']
-        if score < threshold:
-            continue
-        bboxes.append(instance_dicts[i]['bbox'])
+        if score > threshold:
+            bboxes.append(instance_dicts[i]['bbox'])
     """
     Arguments:
         bboxes {list} -- list of bounding boxes with each bounding box is a list [xmin, ymin, xmax, ymax]

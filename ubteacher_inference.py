@@ -119,21 +119,23 @@ def parse_gt(gt_dir):
         gt_dict.update({img_id: each_gt})
     return gt_dict
 
-def filter_intensity(img, instance_dicts, intensity_thresh = 50):
+def filter_intensity(img, instance_dicts, filter_count, intensity_thresh = 50):
     for i in range(len(instance_dicts)):
         x1, y1, x2, y2 = instance_dicts[i]['bbox']
         img_crop = img[int(y1):int(y2), int(x1):int(x2)]
         # Remove instances that are mostly white (background)
         if np.mean(img_crop) > np.percentile(img, intensity_thresh):
             instance_dicts[i]['score'] = 0
-    return instance_dicts
+    return instance_dicts, filter_count
 
-def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
+def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 30, nuc_th = 0.1):
     """
     Perform nuclear segmentation on an image.
     """
+    ratios = []
     for i in range(len(instance_dicts)):
         img_id = wsi_path.split('/')[-1].split('.')[0]
+        nuc_parent = os.path.join(args.output_dir, 'nuc_masks')
         nuc_path = os.path.join(args.output_dir, 'nuc_masks', img_id + '.png')
         out_dir = os.path.join(args.output_dir, 'nuc_seg', img_id)
         
@@ -142,10 +144,16 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
         xc = int((x1 + x2) / 2)
         yc= int((y1 + y2) / 2)
         base_mask = np.zeros(img.shape[:2], dtype = "uint8")
-        base_mask[xc - size:xc + size, yc - size:yc + size] = 1
+        base_mask[yc - size:yc + size, xc - size:xc + size] = 1
+        mask_vis = base_mask * 255
         if not os.path.exists(os.path.join(args.output_dir, 'nuc_masks')):
             os.makedirs(os.path.join(args.output_dir, 'nuc_masks'))
         cv2.imwrite(nuc_path, base_mask)
+        
+        #TODO: Fix this so I can debug the mask issue
+        plt.imshow(img)
+        plt.imshow(mask_vis, alpha=0.5)
+        plt.savefig(os.path.join(nuc_parent, img_id + '_maskvis.png'))
         
         inst_segmentor = NucleusInstanceSegmentor(
             pretrained_model="hovernet_fast-pannuke",
@@ -156,8 +164,6 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
         
         if os.path.exists(out_dir):
             shutil.rmtree(out_dir)
-            
-        print(nuc_path)
             
         wsi_output = inst_segmentor.predict(
             [wsi_path],
@@ -171,20 +177,23 @@ def nuc_seg(img, instance_dicts, wsi_path, size = 20, nuc_th = 0.2):
         neoplastic = []
         all = []
         
-        wsi_pred = joblib.load(wsi_output)
+        wsi_pred = joblib.load(f"{wsi_output[0][1]}.dat")
+        nuc_id_list = list(wsi_pred.keys())
         for n in nuc_id_list:
             all.append(n)
             if wsi_pred[n]["type"] == 0:
                 neoplastic.append(n)
-        if len(neoplastic)/len(all) < nuc_th:
-            instance_dicts[i]['score'] = 0
         if len(all) < 10:
             instance_dicts[i]['score'] = 0
-        try:
-            os.remove(mask_path)
-        except FileNotFoundError:
-            pass
-    return instance_dicts
+            os.remove(nuc_path)
+            filter_count += 1
+        elif len(neoplastic)/len(all) < nuc_th:
+            instance_dicts[i]['score'] = 0
+            filter_count += 1
+            os.remove(nuc_path)
+            ratios.append([len(neoplastic), len(all)])
+            
+    return instance_dicts, filter_count, ratios
     
 def qupath_coordspace(dir, tissue_crop = True):
     """
@@ -392,6 +401,8 @@ if __name__ == "__main__":
 
     global_tick = perf_counter()
     # Convert to batched inputs and perform inference
+    filter_count = 0
+    all_ratios = {}
     for d in inf_dicts:
         raw_img = np.load(d[0]["file_name"])
         wsi_path = os.path.join(wsi_dir, d[0]["file_name"].split('/')[-1].split('.')[0] + '.svs')
@@ -407,20 +418,23 @@ if __name__ == "__main__":
                 instance_dicts.append({'category_id': instances[i].pred_classes.numpy()[0], 
                                        'bbox': instances[i].pred_boxes.tensor.numpy()[0],
                                        'score': instances[i].scores.numpy()[0]})
-            filtered = filter_intensity(raw_img, instance_dicts)
-            final = nuc_seg(raw_img, filtered, wsi_path)
-            #TODO: nuc. seg. here
-            merged = merge_bboxes(filtered, threshold)
+            #filtered, filter_count = filter_intensity(raw_img, instance_dicts, filter_count)
+            #final, filter_count = filter_intensity(raw_img, instance_dicts, filter_count)
+            final, filter_count, ratios = nuc_seg(raw_img, instance_dicts, wsi_path, filter_count)
+            all_ratios.update({img_id: ratios})
+            #merged = merge_bboxes(filtered, threshold)
             if val_mode:
                 fig, ax = custom_visualizer(
-                    img_id, raw_img, final, gt_tissue, merged_bboxes = merged, cat_map = cat_map)
+                    img_id, raw_img, final, gt_tissue, cat_map = cat_map)
             else:
-                fig, ax = custom_visualizer(img_id, raw_img, final, merged_bboxes = merged, cat_map = cat_map)
+                fig, ax = custom_visualizer(img_id, raw_img, final, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
     print(f"Total time: {perf_counter() - global_tick} for {len(inf_dicts)} images")
     print(f"avg. {round((perf_counter() - global_tick)/len(inf_dicts), 2)}s per image)")
+    print(f"Filtered {filter_count} instances.")
+    print(f"Ratios: {all_ratios}")
     
     # Convert outputs to QuPath coordinate space
       
@@ -429,7 +443,7 @@ if __name__ == "__main__":
   
     
     
-    
+     
         
     
     
