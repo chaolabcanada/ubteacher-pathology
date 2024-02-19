@@ -463,93 +463,102 @@ def register_dataset(dset_type: str, dataset_dicts: Dict, classes: List[str]):
         return MetadataCatalog
 
 
-def merge_bboxes(instance_dicts, threshold, delta_x=0.2, delta_y=0.2):
-
-    bboxes = []
-    for i in range(len(instance_dicts)):
-        score = instance_dicts[i]['score']
-        if score > threshold:
-            bboxes.append(instance_dicts[i]['bbox'])
-    """
-    Arguments:
-        bboxes {list} -- list of bounding boxes with each bounding box is a list [xmin, ymin, xmax, ymax]
-        delta_x {float} -- margin taken in width to merge
-        detlta_y {float} -- margin taken in height to merge
+def merge_bboxes(box_coords: List[dict], iou_thresh: int=50) -> List[dict]:
+    #TODO: add score and class as criteria for merging
+    # Get boxes from list of dicts
+    boxes = []
+    for i in box_coords:
+        boxes.append(i['bbox'])     
+    """Sort a list of bounding boxes in order of 'method'
+    Args:
+    bboxes -- a list of bboxes in format [X1Y1X2Y2]
+    method -- one of 'left-right', 'right-left', 'top-bottom', 'bottom-top'
     Returns:
-        {list} -- list of bounding boxes merged
+    a list of sorted boxes
     """
-
-    def is_in_bbox(point, bbox):
-        """
-        Arguments:
-            point {list} -- list of float values (x,y)
-            bbox {list} -- bounding box of float_values [xmin, ymin, xmax, ymax]
-        Returns:
-            {boolean} -- true if the point is inside the bbox
-        """
-        return point[0] >= bbox[0] and point[0] <= bbox[2] and point[1] >= bbox[1] and point[1] <= bbox[3]
-
-    def intersect(bbox, bbox_):
-        """
-        Arguments:
-            bbox {list} -- bounding box of float_values [xmin, ymin, xmax, ymax]
-            bbox_ {list} -- bounding box of float_values [xmin, ymin, xmax, ymax]
-        Returns:
-            {boolean} -- true if the bboxes intersect
-        """
-        for i in range(int(len(bbox) / 2)):
-            for j in range(int(len(bbox) / 2)):
-                # Check if one of the corner of bbox inside bbox_
-                if is_in_bbox([bbox[2 * i], bbox[2 * j + 1]], bbox_):
-                    return True
-        return False
+    if len(box_coords) < 2:
+        return box_coords
+    else:
+        # Initialize the reverse flag and sort index
+        reverse = True
+        i = 0
+        sorted_bboxes = sorted(boxes, key=lambda b:b[i], reverse=reverse)
     
-    def good_intersect(bbox, bbox_):
-        return (bbox[0] < bbox_[2] and bbox[2] > bbox_[0] and
-                bbox[1] < bbox_[3] and bbox[3] > bbox_[1])
+    """Merge overlapping bounding boxes.
+    Args:
+    boxes -- list of boxes with format [x1, y1, x2, y2]
+    iou_thresh -- threshold for IOU to trigger merging
+    Return:
+    a list of merged boxes without overlap
+    """
+    box_arr1 = sorted_bboxes
+    if len(box_arr1) == 0:
+        return box_arr1
+    box_arr2 = [box_arr1.pop(0)]
+    while len(box_arr1) > 0:
+        merge = False
+        # Assign left box as A, right as B
+        keys = ['x1', 'y1', 'x2', 'y2']
+        remove_indices = []
+        for n in range(len(box_arr1)):
+            ref_box = box_arr2[-1]  # Use the last box in arr2 as reference
+            boxes2compare = []
+            for box in (ref_box, box_arr1[n]):
+                x, y, x2, y2 = box
+                boxes2compare.append(int(i) for i in [x, y, x2, y2])
+            A = dict(zip(keys, boxes2compare[0]))
+            B = dict(zip(keys, boxes2compare[1]))
+            # Check if there's no overlap b/w these two boxes
+            if B['x1'] > A['x2'] or \
+                max(A['y1'], B['y1']) > min(A['y2'], B['y2']):
+                continue
+            else:
+                # Calculate IOU
+                u_w = max(A['x2'], B['x2']) - min(A['x1'], B['x1'])
+                u_h = max(A['y2'], B['y2']) - min(A['y1'], B['y1'])
+                union = u_w * u_h
+                i_w = min(A['x2'], B['x2']) - B['x1']
+                i_h = min(A['y2'], B['y2']) - max(A['y1'], B['y1'])
+                intersect = i_w * i_h
+                iou = (intersect / union) * 100
+                if iou >= iou_thresh:
+                    # Merge boxes
+                    merge = True
+                    remove_indices.append(n)
+                    merged_box_xyxy = [A['x1'],
+                                        min(A['y1'], B['y1']), 
+                                        A['x2'], 
+                                        max(A['y2'], B['y2'])]
+                    box_arr2.pop(-1)
+                    box_arr2.append(merged_box_xyxy)
+                    break
+                    
+        # After looping through box_arr1, remove boxes that have been merged
+        # or exhaustively compared from box_arr1
+        box_arr1 = [i for n, i in enumerate(box_arr1) if n not in remove_indices]
+        if not merge:  # If no merging event has occured
+            # Add the 1st box from box_arr1 to box_arr2 for the next round
+            box_arr2.append(box_arr1.pop(0))
+            
+    # Recreate instance_dicts with merged boxes
+    box_arr2 = [{'bbox': i, 'score': 1} for i in box_arr2]
+        
+    return box_arr2
 
-    # Sort bboxes by ymin
-    bboxes = sorted(bboxes, key=lambda x: x[1])
-
-    tmp_bbox = None
-    while True:
-        nb_merge = 0
-        used = []
-        new_bboxes = []
-        # Loop over bboxes
-        for i, b in enumerate(bboxes):
-            for j, b_ in enumerate(bboxes):
-                # If the bbox has already been used just continue
-                if i in used or j <= i:
-                    continue
-                # Compute the bboxes with a margin
-                bmargin = [
-                    b[0] - (b[2] - b[0]) * delta_x, b[1] - (b[3] - b[1]) * delta_y,
-                    b[2] + (b[2] - b[0]) * delta_x, b[3] + (b[3] - b[1]) * delta_y
-                ]
-                b_margin = [
-                    b_[0] - (b_[2] - b_[0]) * delta_x, b_[1] - (b[3] - b[1]) * delta_y,
-                    b_[2] + (b_[2] - b_[0]) * delta_x, b_[3] + (b_[3] - b_[1]) * delta_y
-                ]
-                # Merge bboxes if bboxes with margin have an intersection
-                # Check if one of the corner is in the other bbox
-                # We must verify the other side away in case one bounding box is inside the other
-                if intersect(bmargin, b_margin) or intersect(b_margin, bmargin):
-                    tmp_bbox = [min(b[0], b_[0]), min(b[1], b_[1]), max(b_[2], b[2]), max(b[3], b_[3])]
-                    used.append(j)
-                    # print(bmargin, b_margin, 'done')
-                    nb_merge += 1
-                if tmp_bbox:
-                    b = tmp_bbox
-            if tmp_bbox:
-                new_bboxes.append(tmp_bbox)
-            elif i not in used:
-                new_bboxes.append(b)
-            used.append(i)
-            tmp_bbox = None
-        # If no merge were done, that means all bboxes were already merged
-        if nb_merge == 0:
-            break
-        bboxes = copy.deepcopy(new_bboxes)
-
-    return new_bboxes
+def channel_last(input: np.ndarray or tuple) -> np.ndarray or tuple:
+    """Return the input in channel-last format
+    Args:
+    input -- np.ndarray if image or tuple of array.shape
+    Return:
+    image as ndarray but in channel-last (h, w, c)
+    """
+    if type(input) == np.ndarray:
+        if input.shape[0] == 3:
+            return input.transpose(1, 2, 0)
+        else:
+            return input
+    if type(input) == tuple:
+        if input[0] == 3:
+            return tuple(input[i] for i in [1, 2, 0])
+        else:
+            return input
