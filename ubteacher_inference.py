@@ -251,12 +251,18 @@ def save_annos(qupath_dicts, threshold):
             "type": "Feature",
             "geometry": {
                 "type": "Polygon",
-                "coordinates": [box]
+                "coordinates": [[
+                                [box[0], box[1]],
+                                [box[2], box[1]],
+                                [box[2], box[3]],
+                                [box[0], box[3]],
+                                [box[0], box[1]]
+                                ]]
                         },
             "properties": {
                 "objectType": "annotation",
                 "name": score,
-                "color": [202, 151, 140],
+                "color": [255, 0, 0],
                     }
             })
     qupath_out = os.path.join(args.output_dir, 'qupath_predictions')
