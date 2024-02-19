@@ -34,11 +34,10 @@ from detectron2.engine import DefaultPredictor
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
 from ubteacher.config import add_ubteacher_config
-from ubteacher.utils.train2_utils import (register_dataset,
+from ubteacher.utils.train2_utils import (register_dataset, channel_last,
                                           ParseUnlabeled, merge_bboxes)
 
 from tiatoolbox.models.engine.nucleus_instance_segmentor import NucleusInstanceSegmentor
-
 from detectron2.config import get_cfg
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils.visualizer import Visualizer
@@ -46,7 +45,12 @@ from detectron2.data import DatasetCatalog, MetadataCatalog
 
 ## TODO: Cat map support for merged boxes
 
-def custom_visualizer(img_id, img, instances, gt_instances = None, merged_bboxes = None, cat_map = None):
+def custom_visualizer(img_id, 
+                      img, 
+                      instances, 
+                      gt_instances = None, 
+                      merged_bboxes = False, 
+                      cat_map = None):
     """
     Custom visualizer for UBTeacher2 inference.
     """
@@ -57,28 +61,28 @@ def custom_visualizer(img_id, img, instances, gt_instances = None, merged_bboxes
     
     # Loop over instances and draw boxes
     if merged_bboxes:
-        for i in range(len(merged_bboxes)):
-            x1, y1, x2, y2 = merged_bboxes[i]
-            w = x2 - x1
-            h = y2 - y1
-            rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
-            ax.add_patch(rect)
+        for i in range(len(instances)):
+            if instances[i]['score'] > threshold:
+                x1, y1, x2, y2 = instances[i]['bbox']
+                w = x2 - x1
+                h = y2 - y1
+                rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
+                ax.add_patch(rect)
     else:
         for i in range(len(instances)):
             if cat_map:
                 cat = cat_map[str(instances[i].pred_classes.numpy()[0])]
             else:
                 cat = instances[i]['category_id']
-            score = instances[i]['score']
-            if score < threshold:
-                continue
-            x1, y1, x2, y2 = instances[i]['bbox']
-            w = x2 - x1
-            h = y2 - y1
-            rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
-            ax.add_patch(rect)
-            ax.text(x1, y1, cat, fontsize=9, color='r')
-            ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i]['score'], 2)), fontsize=7, color='r')
+            score = float(instances[i]['score'])
+            if score > threshold:
+                x1, y1, x2, y2 = instances[i]['bbox']
+                w = x2 - x1
+                h = y2 - y1
+                rect = patches.Rectangle((x1,y1),w,h,linewidth=1,edgecolor='r',facecolor='none')
+                ax.add_patch(rect)
+                ax.text(x1, y1, cat, fontsize=9, color='r')
+                ax.text(x1, y1 + img.shape[1]/20, str(round(instances[i]['score'], 2)), fontsize=7, color='r')
     # Loop over ground truth instances and draw boxes
     if gt_instances is not None:
         for i in range(len(gt_instances[img_id])):
@@ -119,16 +123,16 @@ def parse_gt(gt_dir):
         gt_dict.update({img_id: each_gt})
     return gt_dict
 
-def filter_intensity(img, instance_dicts, filter_count, intensity_thresh = 50):
+def filter_intensity(img, instance_dicts, filter_count, intensity_thresh = 30):
     for i in range(len(instance_dicts)):
         x1, y1, x2, y2 = instance_dicts[i]['bbox']
         img_crop = img[int(y1):int(y2), int(x1):int(x2)]
         # Remove instances that are mostly white (background)
-        if np.mean(img_crop) > np.percentile(img, intensity_thresh):
+        if np.mean(img_crop) < np.percentile(img, intensity_thresh):
             instance_dicts[i]['score'] = 0
     return instance_dicts, filter_count
 
-def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 30, nuc_th = 0.1):
+def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 50, nuc_th = 0.1):
     """
     Perform nuclear segmentation on an image.
     """
@@ -140,11 +144,18 @@ def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 30, nuc_th = 0.1
         out_dir = os.path.join(args.output_dir, 'nuc_seg', img_id)
         
         x1, y1, x2, y2 = instance_dicts[i]['bbox']
+        # get size of bbox
+        w = x2 - x1
+        h = y2 - y1
+        if w < size * 2 or h < size * 2:
+            nsize = int(min(w, h) / 2)
+        else:
+            nsize = int(size)
         # get center bbox region
         xc = int((x1 + x2) / 2)
         yc= int((y1 + y2) / 2)
         base_mask = np.zeros(img.shape[:2], dtype = "uint8")
-        base_mask[yc - size:yc + size, xc - size:xc + size] = 1
+        base_mask[yc - nsize:yc + nsize, xc - nsize:xc + nsize] = 1
         mask_vis = base_mask * 255
         if not os.path.exists(os.path.join(args.output_dir, 'nuc_masks')):
             os.makedirs(os.path.join(args.output_dir, 'nuc_masks'))
@@ -153,7 +164,7 @@ def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 30, nuc_th = 0.1
         #TODO: Fix this so I can debug the mask issue
         plt.imshow(img)
         plt.imshow(mask_vis, alpha=0.5)
-        plt.savefig(os.path.join(nuc_parent, img_id + '_maskvis.png'))
+        plt.savefig(os.path.join(nuc_parent, f'{img_id}_{str(i)}_maskvis.png'))
         
         inst_segmentor = NucleusInstanceSegmentor(
             pretrained_model="hovernet_fast-pannuke",
@@ -180,64 +191,80 @@ def nuc_seg(img, instance_dicts, wsi_path, filter_count, size = 30, nuc_th = 0.1
         wsi_pred = joblib.load(f"{wsi_output[0][1]}.dat")
         nuc_id_list = list(wsi_pred.keys())
         for n in nuc_id_list:
-            all.append(n)
             if wsi_pred[n]["type"] == 0:
                 neoplastic.append(n)
-        if len(all) < 10:
+        if len(nuc_id_list) < 10:
             instance_dicts[i]['score'] = 0
             os.remove(nuc_path)
             filter_count += 1
-        elif len(neoplastic)/len(all) < nuc_th:
+        elif len(neoplastic)/len(nuc_id_list) < nuc_th:
             instance_dicts[i]['score'] = 0
             filter_count += 1
             os.remove(nuc_path)
-            ratios.append([len(neoplastic), len(all)])
-            
+        if not len(nuc_id_list) == 0:
+            ratios.append(len(neoplastic)/len(nuc_id_list))
+        
     return instance_dicts, filter_count, ratios
     
-def qupath_coordspace(dir, tissue_crop = True):
+def qupath_coordspace(instance_dicts, wsi_path, img, tissue_crop = True):
     """
-    Convert instances to QuPath coordinate space.
+    Convert preds to QuPath coordinate space.
+    """ 
+    ## TODO: Support tisue crop
+    # get wsi dimensions
+    with tf.TiffFile(wsi_path) as slide:
+        try:
+            base_dim = slide.series[0].levels[0].shape
+            base_dim = channel_last(base_dim)
+        except:
+            # load image
+            image = tf.imread(wsi_path)
+            base_dim = channel_last(image.shape)
+    if not tissue_crop:
+        scale_x = base_dim[0] / img.shape[0]
+        scale_y = base_dim[1] / img.shape[1]
+    for i in instance_dicts:
+        x1, y1, x2, y2 = i['bbox']
+        x1 = x1 * scale_x
+        x2 = x2 * scale_x
+        y1 = y1 * scale_y
+        y2 = y2 * scale_y
+        i['bbox'] = [x1, y1, x2, y2]
+    return instance_dicts           
 
-    Input: list of annotations to be converted from tissue space back to original space
-    Output: list of annotations in original QuPath compatible space and list of annotations in tissue space
+def save_annos(qupath_dicts, threshold):
     """
-
-    annos = glob.glob(os.path.join(dir, "*.json"))
-    scaled = {}
-    for file in annos:
-        with open(file) as f:
-            ddict = json.load(f)
-        img_id = file.split('/')[-1].split('.')[0]
-        if tissue_crop:
-            x_offset = ddict['tissue_xyxy'][0]
-            y_offset = ddict['tissue_xyxy'][1]
-            x_scale = ddict['original_width'] / ddict['width']
-            y_scale = ddict['original_height'] / ddict['height']
-        else:
-            x_offset, y_offset, x_scale, y_scale = 0, 0, 1, 1
-        # Convert to tissue coord. space
-        each_scaled = []
-        for i in range(len(ddict['annotations'])):
-            cat = ddict['annotations'][i]['category_id']
-            bbox = ddict['annotations'][i]['bbox']
-            poly = ddict['annotations'][i]['segmentation'][0]
-            for j in range(len(bbox)):
-                if j % 2 == 0:
-                    bbox[j] = round(bbox[j] * x_scale + x_offset, 1)
-                else:
-                    bbox[j] = round(bbox[j] * y_scale + y_offset, 1)
-            if len(poly) > 4:
-                for k in range(len(poly)):
-                    if i % 2 == 0:
-                        poly[k] = round(poly[k] * x_scale + x_offset, 1)
-                    else:
-                        poly[k] = round(poly[k] * y_scale + y_offset, 1)
-            else:
-                poly = None
-            each_scaled.append({'category_id': cat, 'bbox': bbox, 'segmentation': poly})
-        scaled.update({img_id: each_scaled})
-    return scaled    
+    Save annotations to a json file
+    """
+    ## TODO: Cat map support
+    out_dicts = []
+    for i in range(len(qupath_dicts)):
+        score = float(qupath_dicts[i]['score'])
+        box = qupath_dicts[i]['bbox']
+        try:
+            cat = qupath_dicts[i]['category_id']
+        except:
+            cat = 0
+        if score < threshold:
+            continue
+        out_dicts.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [box]
+                        },
+            "properties": {
+                "objectType": "annotation",
+                "name": score,
+                "color": [202, 151, 140],
+                    }
+            })
+    qupath_out = os.path.join(args.output_dir, 'qupath_predictions')
+    if not os.path.exists(qupath_out):
+        os.makedirs(qupath_out)
+    with open(os.path.join(qupath_out, img_id + '.json'), 'w') as f:
+        json.dump(out_dicts, f)
+    return
 
 if __name__ == "__main__":
     # Necessary
@@ -404,6 +431,7 @@ if __name__ == "__main__":
     filter_count = 0
     all_ratios = {}
     for d in inf_dicts:
+        tick = perf_counter()
         raw_img = np.load(d[0]["file_name"])
         wsi_path = os.path.join(wsi_dir, d[0]["file_name"].split('/')[-1].split('.')[0] + '.svs')
         im = torch.from_numpy(np.transpose(raw_img, (2, 0, 1)))
@@ -416,26 +444,33 @@ if __name__ == "__main__":
             instance_dicts = []
             for i in range(len(instances)):
                 instance_dicts.append({'category_id': instances[i].pred_classes.numpy()[0], 
-                                       'bbox': instances[i].pred_boxes.tensor.numpy()[0],
+                                       'bbox': instances[i].pred_boxes.tensor.numpy()[0].tolist(),
                                        'score': instances[i].scores.numpy()[0]})
             #filtered, filter_count = filter_intensity(raw_img, instance_dicts, filter_count)
-            #final, filter_count = filter_intensity(raw_img, instance_dicts, filter_count)
-            final, filter_count, ratios = nuc_seg(raw_img, instance_dicts, wsi_path, filter_count)
+            # try merging first
+            merged = merge_bboxes(instance_dicts, threshold)
+            final_anno, filter_count, ratios = nuc_seg(raw_img, merged, 
+                                                       wsi_path, filter_count)
             all_ratios.update({img_id: ratios})
             #merged = merge_bboxes(filtered, threshold)
             if val_mode:
                 fig, ax = custom_visualizer(
-                    img_id, raw_img, final, gt_tissue, cat_map = cat_map)
+                    img_id, raw_img, final_anno, gt_tissue, 
+                    merged_bboxes = True, cat_map = cat_map)
             else:
-                fig, ax = custom_visualizer(img_id, raw_img, final, cat_map = cat_map)
+                fig, ax = custom_visualizer(img_id, raw_img, final_anno, 
+                                            merged_bboxes = True, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
+            qupath_dicts = qupath_coordspace(final_anno, wsi_path, raw_img, 
+                                             tissue_crop = tissue_cropping)
+            save_annos(qupath_dicts, threshold)
+            toc = perf_counter()
+            print(f"Processed {img_id} in {round(toc - tick, 2)}s")
+            print(f"Filtered {filter_count} instances.")
     print(f"Total time: {perf_counter() - global_tick} for {len(inf_dicts)} images")
     print(f"avg. {round((perf_counter() - global_tick)/len(inf_dicts), 2)}s per image)")
-    print(f"Filtered {filter_count} instances.")
-    print(f"Ratios: {all_ratios}")
-    
     # Convert outputs to QuPath coordinate space
       
     
