@@ -22,6 +22,7 @@ import joblib
 
 import sys
 from pathlib import Path
+import openslide
 
 # Hacky way to resolve project paths
 sys.path.append(str(Path(os.getcwd()).parents[0]))
@@ -212,7 +213,12 @@ def qupath_coordspace(instance_dicts, wsi_path, img, tissue_crop = True):
     """ 
     ## TODO: Support tisue crop
     # get wsi dimensions
+    slide = openslide.OpenSlide(wsi_path)
+    mppx = float(slide.properties['openslide.mpp-x'])
+    mppy = float(slide.properties['openslide.mpp-y'])
+        
     with tf.TiffFile(wsi_path) as slide:
+        print(slide.pages[0].description)
         try:
             base_dim = slide.series[0].levels[0].shape
             base_dim = channel_last(base_dim)
@@ -230,6 +236,8 @@ def qupath_coordspace(instance_dicts, wsi_path, img, tissue_crop = True):
         y1 = y1 * scale_y
         y2 = y2 * scale_y
         i['bbox'] = [x1, y1, x2, y2]
+        i['width_microns'] = (x2 - x1) * mppx
+        i['height_microns'] = (y2 - y1) * mppy
     return instance_dicts           
 
 def save_annos(qupath_dicts, threshold):
@@ -261,15 +269,18 @@ def save_annos(qupath_dicts, threshold):
                         },
             "properties": {
                 "objectType": "annotation",
-                "name": score,
-                "color": [255, 0, 0],
+                "name": str(f"{i['width_microns']}x{i['height_microns']}"),
+                "color": [0, 255, 0],
+                "classification": {
+                    "name": str(cat),
+                }
                     }
             })
     qupath_out = os.path.join(args.output_dir, 'qupath_predictions')
     if not os.path.exists(qupath_out):
         os.makedirs(qupath_out)
     with open(os.path.join(qupath_out, img_id + '.json'), 'w') as f:
-        json.dump(out_dicts, f)
+        json.dump(out_dicts, f, indent=4)
     return
 
 if __name__ == "__main__":
@@ -452,20 +463,21 @@ if __name__ == "__main__":
                 instance_dicts.append({'category_id': instances[i].pred_classes.numpy()[0], 
                                        'bbox': instances[i].pred_boxes.tensor.numpy()[0].tolist(),
                                        'score': instances[i].scores.numpy()[0]})
+            final_anno = instance_dicts
             #filtered, filter_count = filter_intensity(raw_img, instance_dicts, filter_count)
             # try merging first
-            merged = merge_bboxes(instance_dicts, threshold)
-            final_anno, filter_count, ratios = nuc_seg(raw_img, merged, 
-                                                       wsi_path, filter_count)
-            all_ratios.update({img_id: ratios})
+            #merged = merge_bboxes(instance_dicts, threshold)
+            #final_anno, filter_count, ratios = nuc_seg(raw_img, instance_dicts,
+            #                                         wsi_path, filter_count)
+            #all_ratios.update({img_id: ratios})
             #merged = merge_bboxes(filtered, threshold)
             if val_mode:
                 fig, ax = custom_visualizer(
                     img_id, raw_img, final_anno, gt_tissue, 
-                    merged_bboxes = True, cat_map = cat_map)
+                    merged_bboxes = False, cat_map = cat_map)
             else:
                 fig, ax = custom_visualizer(img_id, raw_img, final_anno, 
-                                            merged_bboxes = True, cat_map = cat_map)
+                                            merged_bboxes = False, cat_map = cat_map)
             #plt.show()
             plt.savefig(os.path.join(args.output_dir, img_id + '.png'))
             plt.close()
@@ -477,7 +489,6 @@ if __name__ == "__main__":
             print(f"Filtered {filter_count} instances.")
     print(f"Total time: {perf_counter() - global_tick} for {len(inf_dicts)} images")
     print(f"avg. {round((perf_counter() - global_tick)/len(inf_dicts), 2)}s per image)")
-    # Convert outputs to QuPath coordinate space
       
     
 
