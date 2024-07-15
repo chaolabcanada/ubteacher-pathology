@@ -66,7 +66,7 @@ def find_unlabeled_dirs(img_parent: str) -> List[str]:
     # user chooses if there are multiple img folders
     for i, img_dir in enumerate(img_dirs):
         print(f'{i}: {os.path.relpath(img_dir, img_parent)}')
-    choice = input('Choose image folders indices, comma separated: \n')
+    choice = input('Choose unlabeled image folders indices, comma separated: \n')
     choice = [int(i) for i in choice.split(',')]
     total_imgs = 0
     for folder in choice:
@@ -101,7 +101,7 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     # user chooses if there are multiple img folders
     for i, img_dir in enumerate(img_dirs):
         print(f'{i}: {os.path.relpath(img_dir, img_parent)}')
-    choice = input('Choose image folders indices, comma separated: \n')
+    choice = input('Choose labeled image folders indices, comma separated: \n')
     choice = [int(i) for i in choice.split(',')]
     total_imgs = 0
     for folder in choice:
@@ -112,7 +112,6 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     #See if qupath_annotations_latest exists in an img_dir
     
     sample_dir = os.path.join(anno_parent, os.path.basename(img_dirs[0]))
-    
     if os.path.exists(os.path.join(sample_dir, 'qupath_annotations_latest')):
         print('Automatically chose qupath_annotations_latest folder')
         anno_subdir = ('qupath_annotations_latest')
@@ -136,7 +135,8 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
     for img_dir in img_dirs:
         base_dir = os.path.basename(img_dir)
         anno_dir = os.path.join(anno_parent, base_dir, anno_subdir)
-    return img_dirs, total_annos
+        total_annos.append(anno_dir)
+    return total_annos, img_dirs
 
         
 def search_recursive(d: Dict, key: str) -> Iterator:
@@ -362,9 +362,12 @@ class ParseFromQuPath:
         tissue_data = []
     
         for i in data:
-            if any(classes in list(search_recursive(i, 'name')) for classes in self.qupath_classes):
-                tissue_data.append(i)
-    
+            try:
+                if any(classes in list(search_recursive(i, 'name')) for classes in self.qupath_classes):
+                    tissue_data.append(i)
+            except:
+                pass
+
         ## create cat map with input classes instead of qupath classes
         flipped_map = flip_dict_and_filter(self.class_data, self.qupath_classes)
         cat_map_class_types = {cat: i for i, cat in enumerate(self.class_types)}
