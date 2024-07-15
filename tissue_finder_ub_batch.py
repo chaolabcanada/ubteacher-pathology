@@ -431,12 +431,6 @@ def process_item(output_dir, registered_metadata, input_output_tuple: tuple, **k
         return message
     
     pred_data = post_processor.process_predictions()
-
-    # Crop tissue regions and save images as numpy arrays
-    for n, box in enumerate(pred_data['boxes']):
-        tissue = post_processor.crop_tissue(box, max_dim=2560)
-        tissue_name = f"{img_name}_{n}"
-        np.save(os.path.join(output_dir, tissue_name), tissue)
     
     # Create visualizations
     visualizer = Visualizer(
@@ -538,7 +532,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     model_path = args.model
     model_path_parent = str(Path(model_path).parent)
-    dataset_dir = args.data_dir
+    dataset_dir = str(args.data_dir[:-1]) if args.data_dir.endswith('/') else str(args.data_dir)
     reg_name = os.path.basename(dataset_dir)
     thresh = args.threshold
     make_gradcam = args.gradcam
