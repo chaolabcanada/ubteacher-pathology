@@ -50,10 +50,10 @@ def main(args):
                 register_dataset("val", val, classes)          
         else:
             box_only = cfg.BOX_ONLY
-            img_dirs, anno_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
+            anno_dirs, img_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
             
             if cfg.DATASETS.CROSS_DATASET:
-                u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR)
+                u_img_dirs = find_unlabeled_dirs(cfg.UNLABELED_DIR) # CHANGE THIS !?
             
             if cfg.CLASS_CONVERTER:
                 class_file = cfg.CLASS_CONVERTER
@@ -68,23 +68,22 @@ def main(args):
             for anno_dir, img_dir in zip(anno_dirs, img_dirs):
                 for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
                     id = os.path.basename(json_file).split('.')[0]
-                    try:
-                        original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
-                        img_file = os.path.join(img_dir, id + '.npy')
-                        base_dim, target_dim = get_scaling(original_img_file, img_file)
-                        each_dict = ParseFromQuPath(anno_dir, 
-                                                    img_dir, 
-                                                    base_dim, 
-                                                    target_dim, 
-                                                    classes,
-                                                    class_file,
-                                                    box_only
-                                                    ).get_coco_format(json_file)
-                        dicts.append(each_dict[0])
-                    except:
-                        print(f"Error parsing {json_file}")
-                        pass
-                    
+                    #try:
+                    original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
+                    img_file = os.path.join(img_dir, id + '.npy')
+                    base_dim, target_dim = get_scaling(original_img_file, img_file)
+                    each_dict = ParseFromQuPath(anno_dir, 
+                                                img_dir, 
+                                                base_dim, 
+                                                target_dim, 
+                                                classes,
+                                                class_file,
+                                                box_only
+                                                ).get_coco_format(json_file)
+                    dicts.append(each_dict[0])
+                    #except:
+                    #    print(f"Error parsing {json_file}")
+                    #    pass
         # accumulate image info for unlabeled registration
             if cfg.DATASETS.CROSS_DATASET:
                 unlabeled_dicts = []
@@ -96,8 +95,8 @@ def main(args):
             # split and register
             if cfg.DATASETS.CROSS_DATASET:
                 train_labeled, val = split_dataset(cfg, dicts)
-                register_dataset("train_unlabeled", unlabeled_dicts, classes)
-                register_dataset("train_labeled", train_labeled, classes)
+                register_dataset("train_unlabel", unlabeled_dicts, classes)
+                register_dataset("train_label", train_labeled, classes)
                 register_dataset("val", val, classes)
             else:
                 train, val = split_dataset(cfg, dicts)
