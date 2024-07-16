@@ -369,8 +369,8 @@ class PostProcess:
                 },
             }
             qp_annotations.append(anno_dict)
-        
-        return json.dumps(qp_annotations, indent=4)
+            
+        return json.dumps(qp_annotations, indent=4)        
     
     def plot_preds(self, vis_items: dict, output_dir: str) -> None:
         """
