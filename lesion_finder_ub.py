@@ -108,22 +108,42 @@ class DatasetHelper:
                 dataset.append(entry)
         return dataset
     
-    def dataset_mapper(self, dataset_dict: dict) -> dict:
+    def get_tissue_data(self, img_dir: str, json_dir: str) -> dict:
+        tissue_dataset = []
+        for file in os.scandir(img_dir):
+            if not file.name.startswith('.') and file.name.endswith(self.compatible_formats):
+                corr_json = os.path.join(json_dir, f'pred_{file.name.split('.')[0]}.json')
+                if not os.path.exists(corr_json):
+                    print(f"Skipping {file.name} as corresponding json file does not exist.")
+                    continue
+                with open(corr_json, "r") as f:
+                    tissue_data = json.load(f)
+            for tissue in tissue_data: # for each tissue make an entry
+                entry = {}
+                entry['file_name'] = file.path
+                entry['image_id'] = file.name
+                x0 = tissue['coordinates'][0][0]
+                y0 = tissue['coordinates'][0][1]
+                x1 = tissue['coordinates'][2][0]
+                y1 = tissue['coordinates'][2][1]
+                entry['tissue'] = [x0, y0, x1, y1]
+            tissue_dataset.append(entry)
+        return tissue_dataset
+    
+    ## rewrite this with getting only the tissue regions from tissues
+    def lf_dataset_mapper(self, dataset_dict: dict) -> dict:
         entry = copy.deepcopy(dataset_dict)
         try:
-            with tf.TiffFile(entry['file_name']) as wsi:
-                train_helper = train_utils.TrainUtil(self.max_dim)
-                top = train_helper.find_top(wsi)
-                top_dim = top.shape
-                base = wsi.series[0].levels[0]
-                base_dim = train_utils.channel_last(base.shape)
-            entry['image'] = torch.from_numpy(top.transpose(2, 0, 1).copy())
-            entry['height'] = top_dim[0]
-            entry['width'] = top_dim[1]
-            entry['base_height'] = base_dim[0]
-            entry['base_width'] = base_dim[1]
-            entry['src_im_height'] = top_dim[0]
-            entry['src_im_width'] = top_dim[1]
+            helper = train_utils.TrainUtil(self.max_dim)
+            x0, y0, x1, y1 = entry['tissue']
+            cropped = helper.crop_image_to_dim(entry['file_name'], [x0, y0, x1, y1], self.max_dim)
+            entry['image'] = torch.from_numpy(cropped.transpose(2, 0, 1).copy())
+            entry['height'] = cropped.shape[0]
+            entry['width'] = cropped.shape[1]
+            entry['base_height'] = y1 - y0
+            entry['base_width'] = x1 - x0
+            entry['src_im_height'] = cropped.shape[0]
+            entry['src_im_width'] = cropped.shape[1]
         except:
             print(f"TiffFile processing error, skipping {entry['file_name']}")
         return entry
@@ -138,7 +158,7 @@ class DatasetHelper:
             iterable[list]. Length of each list is the batch size. Each element in the
                 list comes from the dataset
         """
-        dataset = MapDataset(dataset, self.dataset_mapper)
+        dataset = MapDataset(dataset, self.lf_dataset_mapper)
         return torchdata.DataLoader(
             dataset,
             batch_size=self.batch_size,
