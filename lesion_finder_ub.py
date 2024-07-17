@@ -97,17 +97,7 @@ class DatasetHelper:
                 "bif",
                 "zif",
             )
-
-    def get_img_data(self, img_dir: str) -> list:
-        dataset = []
-        for file in os.scandir(img_dir):
-            if not file.name.startswith('.') and file.name.endswith(self.compatible_formats):
-                entry = {}
-                entry['file_name'] = file.path
-                entry['image_id'] = file.name
-                dataset.append(entry)
-        return dataset
-    
+                
     def get_tissue_data(self, img_dir: str, json_dir: str) -> dict:
         tissue_dataset = []
         for file in os.scandir(img_dir):
@@ -118,16 +108,16 @@ class DatasetHelper:
                     continue
                 with open(corr_json, "r") as f:
                     tissue_data = json.load(f)
-            for tissue in tissue_data: # for each tissue make an entry
-                entry = {}
-                entry['file_name'] = file.path
-                entry['image_id'] = file.name
-                x0 = tissue['geometry']['coordinates'][0][0][0]
-                y0 = tissue['geometry']['coordinates'][0][0][1]
-                x1 = tissue['geometry']['coordinates'][0][2][0]
-                y1 = tissue['geometry']['coordinates'][0][2][1]
-                entry['tissue'] = [x0, y0, x1, y1]
-            tissue_dataset.append(entry)
+                for c, tissue in enumerate(tissue_data): # for each tissue make an entry
+                    entry = {}
+                    entry['file_name'] = file.path
+                    entry['image_id'] = f"{file.name.split('.')[0]}_{c}"
+                    x0 = tissue['geometry']['coordinates'][0][0][0]
+                    y0 = tissue['geometry']['coordinates'][0][0][1]
+                    x1 = tissue['geometry']['coordinates'][0][2][0]
+                    y1 = tissue['geometry']['coordinates'][0][2][1]
+                    entry['tissue'] = [x0, y0, x1, y1]
+                    tissue_dataset.append(entry)
         return tissue_dataset
     
     ## rewrite this with getting only the tissue regions from tissues
@@ -317,7 +307,7 @@ if __name__ == "__main__":
         reg_name, lambda d=reg_name: data_helper.get_tissue_data(dataset_dir, json_dir)
     )
     data_count = len(DatasetCatalog.get(reg_name))
-    print(f"    found {data_count} compatible WSIs")
+    print(f"    found {data_count} compatible tissues")
     metadata = MetadataCatalog.get(reg_name).set(
         thing_classes=sorted(cat_map, key=cat_map.get)
     )
