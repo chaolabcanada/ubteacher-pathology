@@ -112,7 +112,7 @@ class DatasetHelper:
         tissue_dataset = []
         for file in os.scandir(img_dir):
             if not file.name.startswith('.') and file.name.endswith(self.compatible_formats):
-                corr_json = os.path.join(json_dir, f'pred_{file.name.split('.')[0]}.json')
+                corr_json = os.path.join(json_dir, f"pred_{file.name.split('.')[0]}.json")
                 if not os.path.exists(corr_json):
                     print(f"Skipping {file.name} as corresponding json file does not exist.")
                     continue
@@ -122,10 +122,10 @@ class DatasetHelper:
                 entry = {}
                 entry['file_name'] = file.path
                 entry['image_id'] = file.name
-                x0 = tissue['coordinates'][0][0]
-                y0 = tissue['coordinates'][0][1]
-                x1 = tissue['coordinates'][2][0]
-                y1 = tissue['coordinates'][2][1]
+                x0 = tissue['geometry']['coordinates'][0][0][0]
+                y0 = tissue['geometry']['coordinates'][0][0][1]
+                x1 = tissue['geometry']['coordinates'][0][2][0]
+                y1 = tissue['geometry']['coordinates'][0][2][1]
                 entry['tissue'] = [x0, y0, x1, y1]
             tissue_dataset.append(entry)
         return tissue_dataset
@@ -302,8 +302,22 @@ if __name__ == "__main__":
         print(f"    the loaded model was trained to detect ROIs as {list(cat_map.keys())}")
     
     print("Configuring output directory...")
-    output_dir = os.path.join(dataset_dir, f"tissue_finder_{img_size}")
+    output_dir = os.path.join(dataset_dir, f"lesion_finder_{img_size}")
     output_dir = handle_existing_output_folder(output_dir)
     print(f"    outputs from this session will be saved to '{output_dir}'")
     cfg.OUTPUT_DIR = output_dir
     os.makedirs(output_dir, exist_ok=True)
+    
+    # ---------------------------------------
+    # Prepare dataset
+    # ---------------------------------------
+    data_helper = DatasetHelper(cfg)
+    print(f"Registering dataset '{reg_name}'...")
+    DatasetCatalog.register(
+        reg_name, lambda d=reg_name: data_helper.get_tissue_data(dataset_dir, json_dir)
+    )
+    data_count = len(DatasetCatalog.get(reg_name))
+    print(f"    found {data_count} compatible WSIs")
+    metadata = MetadataCatalog.get(reg_name).set(
+        thing_classes=sorted(cat_map, key=cat_map.get)
+    )
