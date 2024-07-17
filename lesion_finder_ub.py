@@ -42,7 +42,7 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.utils.logger import setup_logger
 setup_logger()
 from detectron2.config import get_cfg, CfgNode
-from detectron2.engine import DefaultPredictor
+from detectron2.engine import DefaultPredictor, DefaultTrainer
 from ubteacher.config import add_ubteacher_config
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
@@ -311,3 +311,55 @@ if __name__ == "__main__":
     metadata = MetadataCatalog.get(reg_name).set(
         thing_classes=sorted(cat_map, key=cat_map.get)
     )
+    
+    # ---------------------------------------
+    # Perform inference
+    # ---------------------------------------
+    # Log and time the script
+    start_time = time.time()
+    lf_logger = setup_logger(
+        name="lesion_finder",
+        output=os.path.join(
+            output_dir,
+            f"{time.strftime('%Y%m%d', time.localtime())}.log"
+            )
+        )
+    lf_logger.info(f"Begin inference using num_workers={num_workers} and batch size={batch_size}")
+    
+    # Build dataloader for batch inference
+    dataloader = data_helper.build_batch_dataloader(
+        dataset=DatasetCatalog.get(reg_name)
+    )
+    try:
+        if cfg.SEMISUPNET.Trainer == "ubteacher_rcnn":
+        # Initialize the UBTeacher model -- use the teacher 
+            student_model = UBRCNNTeacherTrainer.build_model(cfg)
+            teacher_model = UBRCNNTeacherTrainer.build_model(cfg)
+            ens_model = EnsembleTSModel(teacher_model, student_model)
+            checkpointer = DetectionCheckpointer(ens_model)
+            checkpointer.load(cfg.MODEL.WEIGHTS)
+            model = ens_model.modelTeacher ## tbd
+            model.eval()
+    except AttributeError: # For detectron2 models
+        model = DefaultPredictor(cfg).model
+        model.eval()
+    
+     # Configure GradCAM if requested
+    if make_gradcam:
+        conv_layers = gradcam.get_conv_layers(model)
+        target_layer = [conv_layers[-1]]
+        lf_logger.info(f"GradCAM will be generated from {target_layer}")
+        
+    # Forward pass
+    for inputs in dataloader:
+        # Process GradCAM if requested, no multiprocessing to avoid CUDA out of memory
+        if make_gradcam:
+            for input_item in inputs:
+                class_cams, output_item = gradcam.GenerateCam(model, input_item, target_layer)()
+                torch.cuda.empty_cache()
+        else:        
+            with torch.no_grad():
+                batch_preds = model(inputs)
+            outputs = [i['instances'].to('cpu') for i in batch_preds]
+
+    print(outputs)

@@ -36,6 +36,7 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.utils.logger import setup_logger
 setup_logger()
 from detectron2.config import get_cfg, CfgNode
+from detectron2.engine import DefaultPredictor, DefaultTrainer
 from ubteacher.config import add_ubteacher_config
 from ubteacher.engine.trainer import UBRCNNTeacherTrainer
 from ubteacher.modeling.meta_arch.ts_ensemble import EnsembleTSModel
@@ -281,57 +282,6 @@ class PostProcess:
             count = len([i for i in processed_predictions['labels'] if i == label])
             class_counts[label] = count
         return f"Predictions: {class_counts}"
-    
-    def crop_tissue(self, box: list, max_dim: int):
-        """
-        Crop out an image region using the provided bounding box
-
-        Args
-            max_dim (int): maximum dimension for resizing
-        Returns
-            tissue_img (np.ndarray): image of cropped tissue
-        """
-        file_name = self.input['file_name']
-        ref_dim = (self.input['height'], self.input['width'])
-
-        with tf.TiffFile(file_name) as wsi:
-            # Instantiate WSI reader
-            if len(wsi.series[0].levels) > 1:
-                    pyramid_reader = wsi.series[0].levels # Works for most WSIs
-            else:
-                pyramid_reader = wsi.pages # Rare
-            # Get the target level index to read WSI from to match the crop dimension to max_dim
-            for lvl_idx, level in enumerate(pyramid_reader):
-                lvl_dim = train_utils.channel_last(level.shape)
-                lvl_crop = train_utils.scale_bboxes([box], ref_dim, lvl_dim)[0]
-                cx1, cy1, cx2, cy2 = [int(i) for i in lvl_crop]
-                
-                if (cx2-cx1)>max_dim or (cy2-cy1)>max_dim:
-                    target = lvl_idx
-                    continue
-                else:
-                    target = lvl_idx - 1
-                    break
-
-            # Read image from the target level index
-            try:
-                wsi_image = pyramid_reader[target].asarray()
-            except IndexError:
-                wsi_image = pyramid_reader[lvl_idx].asarray()
-            wsi_image = train_utils.channel_last(wsi_image)
-
-        # Crop image using CropTransform(x0, y0, w, h)
-        crop_coord = train_utils.scale_bboxes([box], ref_dim, wsi_image.shape)[0]
-        tx1, ty1, tx2, ty2 = [int(i) for i in crop_coord]
-        cropper = T.CropTransform(tx1, ty1, (tx2-tx1), (ty2-ty1))
-        tissue_img = cropper.apply_image(wsi_image)
-
-        # Resize crop if necessary
-        if tissue_img.size:
-            if tissue_img.shape[0] > max_dim or tissue_img.shape[1] > max_dim:
-                tissue_img = train_utils.resize_image(tissue_img, max_dim)
-
-        return tissue_img
 
     def build_json(self, processed_predictions: dict):
         """
@@ -616,14 +566,21 @@ if __name__ == "__main__":
     dataloader = data_helper.build_batch_dataloader(
         dataset=DatasetCatalog.get(reg_name)
     )
-    # Initialize the UBTeacher model -- use the teacher
-    student_model = UBRCNNTeacherTrainer.build_model(cfg)
-    teacher_model = UBRCNNTeacherTrainer.build_model(cfg)
-    ens_model = EnsembleTSModel(teacher_model, student_model)
-    checkpointer = DetectionCheckpointer(ens_model)
-    checkpointer.load(cfg.MODEL.WEIGHTS)
-    model = ens_model.modelStudent ## is this right?
-    model.eval()
+    try:
+        if cfg.SEMISUPNET.Trainer == "ubteacher_rcnn":
+            # Initialize the UBTeacher model -- use the teacher
+            student_model = UBRCNNTeacherTrainer.build_model(cfg)
+            teacher_model = UBRCNNTeacherTrainer.build_model(cfg)
+            ens_model = EnsembleTSModel(teacher_model, student_model)
+            checkpointer = DetectionCheckpointer(ens_model)
+            checkpointer.load(cfg.MODEL.WEIGHTS)
+            model = ens_model.modelStudent ## is this right?
+            model.eval()
+    except AttributeError:
+        model = DefaultTrainer.build_model(cfg)
+        checkpointer = DetectionCheckpointer(model)
+        checkpointer.load(cfg.MODEL.WEIGHTS)
+        model.eval()
 
     # Configure GradCAM if requested
     if make_gradcam:
@@ -660,7 +617,6 @@ if __name__ == "__main__":
             with torch.no_grad():
                 batch_preds = model(inputs)
             outputs = [i['instances'].to('cpu') for i in batch_preds]
-
             # Postprocess predictions
             try:
                 mp.set_start_method('spawn', force=True)
@@ -672,11 +628,7 @@ if __name__ == "__main__":
                     output_dir,
                     metadata,
                 )
-                try:
-                    pred_info = pool.map(func, zip(inputs, outputs))
-                except Exception as e:
-                    print(f"An error occured: {e}")
-                    sys.exit(1)
+                pred_info = pool.map(func, zip(inputs, outputs))
         for i in pred_info:
             tf_logger.info(i)
         
