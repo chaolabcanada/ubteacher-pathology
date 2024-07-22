@@ -123,19 +123,16 @@ class DatasetHelper:
     ## rewrite this with getting only the tissue regions from tissues
     def lf_dataset_mapper(self, dataset_dict: dict) -> dict:
         entry = copy.deepcopy(dataset_dict)
-        try:
-            helper = train_utils.TrainUtil(self.max_dim)
-            x0, y0, x1, y1 = entry['tissue']
-            cropped = helper.crop_image_to_dim(entry['file_name'], [x0, y0, x1, y1], self.max_dim)
-            entry['image'] = torch.from_numpy(cropped.transpose(2, 0, 1).copy())
-            entry['height'] = cropped.shape[0]
-            entry['width'] = cropped.shape[1]
-            entry['base_height'] = y1 - y0
-            entry['base_width'] = x1 - x0
-            entry['src_im_height'] = cropped.shape[0]
-            entry['src_im_width'] = cropped.shape[1]
-        except:
-            print(f"TiffFile processing error, skipping {entry['file_name']}")
+        helper = train_utils.TrainUtil(self.max_dim)
+        x0, y0, x1, y1 = entry['tissue']
+        cropped = helper.crop_tissue(entry['file_name'], (x0, y0, x1, y1))
+        entry['image'] = torch.from_numpy(cropped.transpose(2, 0, 1).copy())
+        entry['height'] = cropped.shape[0]
+        entry['width'] = cropped.shape[1]
+        entry['base_height'] = y1 - y0
+        entry['base_width'] = x1 - x0
+        entry['src_im_height'] = cropped.shape[0]
+        entry['src_im_width'] = cropped.shape[1]
         return entry
     
     def build_batch_dataloader(self, dataset):
@@ -162,6 +159,196 @@ class DatasetHelper:
         A batch collator that does nothing.
         """
         return batch
+    
+# TODO: add score to the json 
+class PostProcess:
+    def __init__(self, model_input, registered_metadata, pred_instances, iou_thresh: float=0.10) -> None:
+        """
+        Args
+            model_input (dict): a single input to the model; 
+                            must be on CPU;
+                            details at: https://detectron2.readthedocs.io/en/stable/tutorials/models.html
+            registered_metadata (dict): detectron2 dataset metadata (Metadata)
+            pred_instances (detectron2.structures.Instances object): predicted instances
+            iou_thresh (float):  threshold (0-1) for IOU to trigger merging
+        Attributes
+            
+        """
+        self.input = model_input
+        self.metadata = registered_metadata
+        self.pred_classes = [cls.item() for cls in pred_instances.pred_classes]
+        self.boxes = [box.detach().numpy().tolist() for box in pred_instances.pred_boxes]
+        self.scores = [score.item() for score in pred_instances.scores]
+        self.iou_thresh = iou_thresh
+
+    def process_predictions(self) -> dict:
+        """
+        Merge overlapping boxes for each class
+        
+        Returns
+            a dictionary containing a list of 'labels' and a list of 'boxes'
+        """
+        # Group predicted bboxes by class
+        class_to_boxes = {}
+        for inst_class, inst_box in zip(self.pred_classes, self.boxes):
+            class_to_boxes.setdefault(inst_class, []).append(inst_box)
+        pred_labels = []
+        pred_boxes = []
+        pred_scores = []
+        for cls, boxes in class_to_boxes.items():
+            pred_labels.extend([self.metadata.thing_classes[cls]] * len(boxes))
+            pred_boxes.extend(boxes)
+            pred_scores.extend([self.scores[i] for i in range(len(boxes))])
+        return {'labels': pred_labels, 'boxes': pred_boxes, 'scores': pred_scores}
+
+    def summarize_predictions(self, processed_predictions):
+        """
+        Summarize predictions for an image and log the results.
+
+        This function checks if there are any predicted classes for an image. If there are none, it logs a warning.
+        Otherwise, it counts the occurrences of each label in the predictions and logs the counts.
+
+        Args:
+            processed_predictions (dict): cleaned prediction results with keys 'labels' and 'boxes' 
+
+        Returns:
+            A dictionary mapping labels to their counts, or None if there are no predicted classes.
+        """
+        class_counts = {}
+        for label in self.metadata.thing_classes:
+            count = len([i for i in processed_predictions['labels'] if i == label])
+            class_counts[label] = count
+        return f"Predictions: {class_counts}"
+
+    def build_image_json(self, processed_predictions: dict): ## TODO: Color = score?
+        """
+        Convert predictions to QuPath-compatible json
+        For each subsequent tissue from the same WSI, append the boxes to the existing json
+        
+        Args
+            processed_predictions (dict): cleaned prediction results with keys 'labels' and 'boxes'
+
+        Returns 
+            JSON formmated str
+        """
+        # Upsample boxes to base WSI dimensions
+        scores = processed_predictions['scores']
+        offset = self.input['tissue'][:2]
+        scaled_boxes = train_utils.scale_bboxes(
+            processed_predictions['boxes'],
+            (self.input['src_im_height'], self.input['src_im_width']),
+            (self.input['base_height'], self.input['base_width'])
+                        )
+        offset_boxes = train_utils.offset_bboxes(scaled_boxes, offset)
+        qp_boxes = [[[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]] 
+                                for x1, y1, x2, y2 in offset_boxes]
+        labels = processed_predictions['labels']
+        cmap = matplotlib.colormaps['jet']
+        qp_annotations = []
+        for n, (label, box) in enumerate(zip(labels, qp_boxes)):
+            color = cmap(n*25)
+            color_int = [int(x*255) for x in color[:3]]
+            score = np.round(scores[n], 3)
+            anno_dict = {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [box]},
+                "properties": {
+                    "object_type": "annotation",
+                    "name": label,
+                    "color": color_int,
+                    "classification": {"name": f"LesionFinder : {score}", 
+                                       "colorRGB": -16776961},  # Blue
+                    "isLocked": False,
+                },
+            }
+            qp_annotations.append(anno_dict)
+        return json.dumps(qp_annotations, indent=4)
+    
+    def plot_preds(self, vis_items: dict, output_dir: str) -> None:
+        """
+        Plots multiple images in subplots and saves the combined plot.
+
+        Args:
+            image_id (str): identifier for the plot (used in the title)
+            vis_items (dict): list of dicts where keys are 'title', 'image', and values are str and image of shape (H, W, 3) (RGB) in uint8 type
+            output_dir (str): directory where the plot image will be saved
+        """
+        image_id = vis_items['image_id']
+        subplot_titles = vis_items['subplot_titles']
+        images = vis_items['images']
+        assert len(subplot_titles) == len(images)
+
+        fig = plt.figure()
+        fig.suptitle(image_id)
+        num_subplots = len(subplot_titles)
+        for n, (title, image) in enumerate(zip(subplot_titles, images)):
+            ax = fig.add_subplot(1, num_subplots, n+1)
+            ax.imshow(image)
+            ax.set_title(title)
+        plt.rc('font', size=6) # Controls default text sizes
+        plt.rc('xtick', labelsize=4)    # Fontsize of the tick labels
+        plt.rc('ytick', labelsize=4)    # Fontsize of the tick labels
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{image_id}_pred.png"), format="png", dpi=300)
+        plt.close()        
+        
+def process_lf_item(output_dir, registered_metadata, input_output_tuple: tuple, **kwargs) -> None:
+    """
+    Process a single item from a batch of inputs and outputs.
+
+    This function takes a tuple of an input item and its corresponding output item, processes the output item's instances, 
+    summarizes the predictions, crops tissue regions and saves them as numpy arrays, creates visualizations, and writes 
+    predicted tissue regions to a JSON file.
+
+    Args
+        output_dir (str): the output directory
+        registered_metadata
+        input_output_tuple (tuple): a single input and its corresponding model output (instances)
+    Returns
+        message (str):
+    """
+    cam_data = kwargs.get('cam_data', {})
+
+    # Postprocess predictions
+    input_item, instances = input_output_tuple
+    tissue_name = os.path.splitext(input_item['image_id'])[0]
+    img_name = tissue_name.split('_')[0]
+    message = f"Processed {img_name}. "
+    post_processor = PostProcess(input_item, 
+                                registered_metadata, 
+                                instances,
+                                iou_thresh=0.1)
+    
+    if (len(post_processor.pred_classes)) == 0:
+        message += "No predictions for this image!"
+        return message
+    
+    pred_data = post_processor.process_predictions()
+    
+    # Create visualizations
+    visualizer = Visualizer(
+                    np.transpose(input_item['image'].data.numpy(), [1, 2, 0]), 
+                    metadata=registered_metadata,
+                    scale=1.0)
+    pred_vis = visualizer.overlay_instances(
+                boxes=pred_data['boxes'],
+                labels=pred_data['labels']
+                )
+    plot_keys = ['image_id', 'subplot_titles', 'images']
+    plot_values = [tissue_name, ['detected_tissues'], [pred_vis.get_image()]]
+    if cam_data:
+        plot_values[1].extend(f"GradCAM: {metadata.thing_classes[cls]}" for cls in cam_data)
+        plot_values[2].extend(cam_data.values())
+    
+    post_processor.plot_preds(dict(zip(plot_keys, plot_values)), output_dir)
+    
+    # Create QuPath json (predictions as annotations)
+    with open(os.path.join(output_dir, f"pred_{img_name}.json"), "w") as json_file: ##TODO: This should append instead of overwrite
+        json_file.write(post_processor.build_image_json(pred_data))
+    
+    # Summarize processed prediction results
+    message += post_processor.summarize_predictions(pred_data)
+    return message
     
 if __name__ == "__main__":
     # ---------------------------------------
@@ -340,8 +527,15 @@ if __name__ == "__main__":
             checkpointer.load(cfg.MODEL.WEIGHTS)
             model = ens_model.modelTeacher ## tbd
             model.eval()
-    except AttributeError: # For detectron2 models
-        model = DefaultPredictor(cfg).model
+        else: # For detectron2 models
+            model = DefaultTrainer.build_model(cfg)
+            checkpointer = DetectionCheckpointer(model)
+            checkpointer.load(cfg.MODEL.WEIGHTS)
+            model.eval()
+    except AttributeError: # For unspecified
+        model = DefaultTrainer.build_model(cfg)
+        checkpointer = DetectionCheckpointer(model)
+        checkpointer.load(cfg.MODEL.WEIGHTS)
         model.eval()
     
      # Configure GradCAM if requested
@@ -356,10 +550,35 @@ if __name__ == "__main__":
         if make_gradcam:
             for input_item in inputs:
                 class_cams, output_item = gradcam.GenerateCam(model, input_item, target_layer)()
-                torch.cuda.empty_cache()
+                pred_info = process_lf_item(
+                                output_dir, 
+                                metadata,
+                                (input_item, output_item),
+                                cam_data = class_cams
+                            )
+                pred_info = [pred_info]
         else:        
             with torch.no_grad():
                 batch_preds = model(inputs)
             outputs = [i['instances'].to('cpu') for i in batch_preds]
-
-    print(outputs)
+            
+         # Postprocess predictions
+            try:
+                mp.set_start_method('spawn', force=True)
+            except RuntimeError:
+                pass
+            with mp.Pool(processes=num_workers) as pool:
+                func = partial(
+                    process_lf_item,
+                    output_dir,
+                    metadata,
+                )
+                try:
+                    pred_info = pool.map(func, zip(inputs, outputs))
+                except Exception as e:
+                    print(f"An error occured: {e}")
+                    sys.exit(1)
+        for i in pred_info:
+            lf_logger.info(i)
+        
+    lf_logger.info(f"All done! Total run time to process {data_count} images is {round(time.time() - start_time, 2)} seconds")
