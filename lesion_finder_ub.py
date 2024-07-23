@@ -176,6 +176,7 @@ class PostProcess:
         """
         self.input = model_input
         self.metadata = registered_metadata
+        self.file_name = model_input['file_name']
         self.pred_classes = [cls.item() for cls in pred_instances.pred_classes]
         self.boxes = [box.detach().numpy().tolist() for box in pred_instances.pred_boxes]
         self.scores = [score.item() for score in pred_instances.scores]
@@ -190,16 +191,30 @@ class PostProcess:
         """
         # Group predicted bboxes by class
         class_to_boxes = {}
+        img_id = self.file_name.split('/')[-1].split('.')[0]
         for inst_class, inst_box in zip(self.pred_classes, self.boxes):
             class_to_boxes.setdefault(inst_class, []).append(inst_box)
         pred_labels = []
         pred_boxes = []
+        base_boxes = []
         pred_scores = []
         for cls, boxes in class_to_boxes.items():
+            scaled_boxes = train_utils.scale_bboxes(
+                boxes,
+                (self.input['src_im_height'], self.input['src_im_width']),
+                (self.input['base_height'], self.input['base_width'])
+                )
+            offset_boxes = train_utils.offset_bboxes(scaled_boxes, self.input['tissue'][:2])
             pred_labels.extend([self.metadata.thing_classes[cls]] * len(boxes))
             pred_boxes.extend(boxes)
+            base_boxes.extend(offset_boxes)
             pred_scores.extend([self.scores[i] for i in range(len(boxes))])
-        return {'labels': pred_labels, 'boxes': pred_boxes, 'scores': pred_scores}
+        final_dict = {'image_id' : img_id, 
+                      'labels': pred_labels, 
+                      'boxes': pred_boxes, 
+                      'scores': pred_scores,
+                      'base_boxes' : base_boxes}
+        return final_dict
 
     def summarize_predictions(self, processed_predictions):
         """
@@ -261,7 +276,7 @@ class PostProcess:
                     "isLocked": False,
                 },
             }
-            qp_annotations.append(anno_dict)
+            qp_annotations.append(anno_dict) 
         return json.dumps(qp_annotations, indent=4)
     
     def plot_preds(self, vis_items: dict, output_dir: str) -> None:
@@ -321,7 +336,7 @@ def process_lf_item(output_dir, registered_metadata, input_output_tuple: tuple, 
     
     if (len(post_processor.pred_classes)) == 0:
         message += "No predictions for this image!"
-        return message
+        return message, None
     
     pred_data = post_processor.process_predictions()
     
@@ -330,7 +345,7 @@ def process_lf_item(output_dir, registered_metadata, input_output_tuple: tuple, 
                     np.transpose(input_item['image'].data.numpy(), [1, 2, 0]), 
                     metadata=registered_metadata,
                     scale=1.0)
-    pred_vis = visualizer.overlay_instances(
+    pred_vis = visualizer.overlay_instances( ## Change this to match the new format {file_name : {x}}
                 boxes=pred_data['boxes'],
                 labels=pred_data['labels']
                 )
@@ -341,21 +356,69 @@ def process_lf_item(output_dir, registered_metadata, input_output_tuple: tuple, 
         plot_values[2].extend(cam_data.values())
     
     post_processor.plot_preds(dict(zip(plot_keys, plot_values)), output_dir)
-    
-    # Create QuPath json (predictions as annotations)
-    with open(os.path.join(output_dir, f"pred_{img_name}.json"), "w") as json_file: ##TODO: This should append instead of overwrite
-        json_file.write(post_processor.build_image_json(pred_data))
-    
+
     # Summarize processed prediction results
-    message += post_processor.summarize_predictions(pred_data)
-    return message
-    
+    message += post_processor.summarize_predictions(pred_data)  
+    return message, pred_data
+
+def qp_anno_dict(d: dict):
+    qp_annos = []
+    scores = d['scores']
+    labels = d['labels']
+    base_boxes = d['base_boxes']
+    qp_boxes = [[[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]] 
+                    for x1, y1, x2, y2 in base_boxes]
+    cmap = matplotlib.colormaps['jet']
+    for n, (label, box) in enumerate(zip(labels, qp_boxes)):
+        color = cmap(n*25)
+        color_int = [int(x*255) for x in color[:3]]
+        score = np.round(scores[n], 3)
+        anno_dict = {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [box]},
+            "properties": {
+                "object_type": "annotation",
+                "name": label,
+                "color": color_int,
+                "classification": {"name": f"LesionFinder : {score}", 
+                                "colorRGB": -16776961},  # Blue
+                "isLocked": False,
+            },
+        }
+        qp_annos.append(anno_dict)
+    return qp_annos
+            
+def join_tissue_dicts(output_dir, all_data):
+    """
+    Join tissue dictionaries for the same image and save them to a json file.
+
+    Args
+        output_dir (str): the output directory
+        all_pred_data (list): a list of dictionaries containing the predicted tissues for each image
+    """
+    collected_data = {}
+    for tissue_dict in all_data:
+        img_id = tissue_dict['image_id']
+        if img_id in collected_data.keys():
+            collected_data[img_id]['labels'].extend(tissue_dict['labels'])
+            collected_data[img_id]['boxes'].extend(tissue_dict['boxes'])
+            collected_data[img_id]['scores'].extend(tissue_dict['scores'])
+            collected_data[img_id]['base_boxes'].extend(tissue_dict['base_boxes'])
+        else:
+            collected_data[img_id] = tissue_dict
+    for img_id, tissue_data in collected_data.items():
+        qp_annos = qp_anno_dict(tissue_data)
+        with open(os.path.join(output_dir, f"{img_id}.json"), "w") as f:
+            json.dump(qp_annos, f, indent=4)
+    return f"Saved {len(collected_data)} json files to {output_dir}"
+
+        
 if __name__ == "__main__":
     # ---------------------------------------
     # Setup commandline arguments
     # ---------------------------------------
     parser = argparse.ArgumentParser(
-        description="Predict Lymph/Non-lymph ROIs. \
+        description="Predict Neoplastic ROIs. \
                     By default performs inference on unseen whole slide images. \
                     "
     )
@@ -545,40 +608,46 @@ if __name__ == "__main__":
         lf_logger.info(f"GradCAM will be generated from {target_layer}")
         
     # Forward pass
+    all_pred_data = []
     for inputs in dataloader:
         # Process GradCAM if requested, no multiprocessing to avoid CUDA out of memory
         if make_gradcam:
             for input_item in inputs:
                 class_cams, output_item = gradcam.GenerateCam(model, input_item, target_layer)()
-                pred_info = process_lf_item(
+                pred_info, pred_outputs = process_lf_item(
                                 output_dir, 
                                 metadata,
                                 (input_item, output_item),
                                 cam_data = class_cams
-                            )
-                pred_info = [pred_info]
-        else:        
-            with torch.no_grad():
-                batch_preds = model(inputs)
-            outputs = [i['instances'].to('cpu') for i in batch_preds]
-            
-         # Postprocess predictions
+                                )
+                if pred_info is not None:
+                    all_pred_data.append(pred_outputs)
+        with torch.no_grad():
+            batch_preds = model(inputs)
+        outputs = [i['instances'].to('cpu') for i in batch_preds]
+        # Postprocess predictions
+        try:
+            mp.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass
+        with mp.Pool(processes=num_workers) as pool:
+            func = partial(
+                process_lf_item,
+                output_dir,
+                metadata,
+            )
             try:
-                mp.set_start_method('spawn', force=True)
-            except RuntimeError:
-                pass
-            with mp.Pool(processes=num_workers) as pool:
-                func = partial(
-                    process_lf_item,
-                    output_dir,
-                    metadata,
-                )
-                try:
-                    pred_info = pool.map(func, zip(inputs, outputs))
-                except Exception as e:
-                    print(f"An error occured: {e}")
-                    sys.exit(1)
+                map_outputs = pool.map(func, zip(inputs, outputs))
+                pred_info = [info for info, _ in map_outputs]
+                pred_outputs = [output for _, output in map_outputs][0]
+                if pred_outputs is not None:
+                    all_pred_data.append(pred_outputs)
+            except Exception as e:
+                print(f"An error occured: {e}")
+                sys.exit(1)
         for i in pred_info:
             lf_logger.info(i)
-        
+    
+    print(join_tissue_dicts(output_dir, all_pred_data))
+    
     lf_logger.info(f"All done! Total run time to process {data_count} images is {round(time.time() - start_time, 2)} seconds")
