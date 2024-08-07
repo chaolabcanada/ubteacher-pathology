@@ -68,22 +68,22 @@ def main(args):
             for anno_dir, img_dir in zip(anno_dirs, img_dirs):
                 for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
                     id = os.path.basename(json_file).split('.')[0]
-                    #try:
-                    original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
-                    img_file = os.path.join(img_dir, id + '.npy')
-                    base_dim, target_dim = get_scaling(original_img_file, img_file)
-                    each_dict = ParseFromQuPath(anno_dir, 
-                                                img_dir, 
-                                                base_dim, 
-                                                target_dim, 
-                                                classes,
-                                                class_file,
-                                                box_only
-                                                ).get_coco_format(json_file)
-                    dicts.append(each_dict[0])
-                    #except:
-                    #    print(f"Error parsing {json_file}")
-                    #    pass
+                    try:
+                        original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
+                        img_file = os.path.join(img_dir, id + '.npy')
+                        base_dim, target_dim = get_scaling(original_img_file, img_file)
+                        each_dict = ParseFromQuPath(anno_dir, 
+                                                    img_dir, 
+                                                    base_dim, 
+                                                    target_dim, 
+                                                    classes,
+                                                    class_file,
+                                                    box_only
+                                                    ).get_coco_format(json_file)
+                        dicts.append(each_dict[0])
+                    except:
+                        print(f"Error parsing {json_file}")
+                        pass
         # accumulate image info for unlabeled registration
             if cfg.DATASETS.CROSS_DATASET:
                 unlabeled_dicts = []
@@ -93,10 +93,11 @@ def main(args):
                         unlabeled_dicts.append(each_dict[0])     
 
             # split and register
+            print("Registering datasets...")
             if cfg.DATASETS.CROSS_DATASET:
                 train_labeled, val = split_dataset(cfg, dicts)
-                register_dataset("train_unlabel", unlabeled_dicts, classes)
-                register_dataset("train_label", train_labeled, classes)
+                register_dataset("train_unlabeled", unlabeled_dicts, classes)
+                register_dataset("train_labeled", train_labeled, classes)
                 register_dataset("val", val, classes)
             else:
                 train, val = split_dataset(cfg, dicts)
@@ -109,7 +110,7 @@ def main(args):
             f.write(json.dumps(cat_map))          
 
     # train
-
+    print("Starting training...")
     if cfg.SEMISUPNET.Trainer == "ubteacher":
         Trainer = UBTeacherTrainer
     elif cfg.SEMISUPNET.Trainer == "ubteacher_rcnn":
