@@ -10,10 +10,6 @@ TODO
 @Contact: jesse.chao@sri.utoronto.ca
 """
 
-  ## function to read the json from tissue finder outputs (QP format)
-    ## DONT MERGE!!!! THE BOXESA !!!
-    ## function to write the json w.r.t. the entire image (i.e. add the tissue offsets before rescaling to base dim)
-    ## lesionfinder ub model stuff should be the same etc
 import argparse
 import copy
 from functools import partial
@@ -339,13 +335,15 @@ def process_lf_item(output_dir, registered_metadata, input_output_tuple: tuple, 
         return message, None
     
     pred_data = post_processor.process_predictions()
+    #combine scores into labels
+    pred_data['labels'] = [f"{label} : {np.round(score, 3)}" for label, score in zip(pred_data['labels'], pred_data['scores'])]
     
     # Create visualizations
     visualizer = Visualizer(
                     np.transpose(input_item['image'].data.numpy(), [1, 2, 0]), 
                     metadata=registered_metadata,
                     scale=1.0)
-    pred_vis = visualizer.overlay_instances( ## Change this to match the new format {file_name : {x}}
+    pred_vis = visualizer.overlay_instances(
                 boxes=pred_data['boxes'],
                 labels=pred_data['labels']
                 )
@@ -460,8 +458,8 @@ if __name__ == "__main__":
         metavar='DETECTION_THRESHOLD',
         type=float,
         nargs="?",
-        default=0.8,
-        help="set detection threshold; higher=more stringent; default=0.9",
+        default=0.7,
+        help="set detection threshold; higher=more stringent; default=0.7",
     )
     parser.add_argument(
     "--num_workers",
@@ -620,8 +618,19 @@ if __name__ == "__main__":
                                 (input_item, output_item),
                                 cam_data = class_cams
                                 )
-                if pred_info is not None:
+                if pred_outputs is not None:
                     all_pred_data.append(pred_outputs)
+                    # Save GradCAM images
+                    fig = plt.figure()
+                    fig.suptitle(input_item['image_id'])
+                    num_subplots = len(class_cams.items())
+                    for n, (cls, cam) in enumerate(class_cams.items()):
+                        ax = fig.add_subplot(1, num_subplots, n+1)
+                        ax.imshow(cam)
+                        ax.set_title(f"GradCam: {metadata.thing_classes[cls]}")
+                    plt.savefig(os.path.join(output_dir, f"{input_item['image_id']}_gradcam.png"), format='png', dpi=200)
+                    plt.close()   
+                    
         with torch.no_grad():
             batch_preds = model(inputs)
         outputs = [i['instances'].to('cpu') for i in batch_preds]

@@ -30,7 +30,6 @@ import numpy as np
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.data import MapDataset
-from detectron2.data import transforms as T
 from detectron2.data.samplers import InferenceSampler
 from detectron2.utils.visualizer import Visualizer
 from detectron2.utils.logger import setup_logger
@@ -381,6 +380,8 @@ def process_item(output_dir, registered_metadata, input_output_tuple: tuple, **k
         return message
     
     pred_data = post_processor.process_predictions()
+        #combine scores into labels
+    pred_data['labels'] = [f"{label} : {np.round(score, 3)}" for label, score in zip(pred_data['labels'], pred_data['scores'])]
     
     # Create visualizations
     visualizer = Visualizer(
@@ -448,8 +449,8 @@ if __name__ == "__main__":
         metavar='DETECTION_THRESHOLD',
         type=float,
         nargs="?",
-        default=0.8,
-        help="set detection threshold; higher=more stringent; default=0.9",
+        default=0.7,
+        help="set detection threshold; higher=more stringent; default=0.7",
     )
     parser.add_argument(
     "--num_workers",
@@ -576,6 +577,11 @@ if __name__ == "__main__":
             checkpointer.load(cfg.MODEL.WEIGHTS)
             model = ens_model.modelStudent ## is this right?
             model.eval()
+        else:
+            model = DefaultTrainer.build_model(cfg)
+            checkpointer = DetectionCheckpointer(model)
+            checkpointer.load(cfg.MODEL.WEIGHTS)
+            model.eval()
     except AttributeError:
         model = DefaultTrainer.build_model(cfg)
         checkpointer = DetectionCheckpointer(model)
@@ -584,6 +590,7 @@ if __name__ == "__main__":
 
     # Configure GradCAM if requested
     if make_gradcam:
+        # how does this differ from above method...
         conv_layers = gradcam.get_conv_layers(model)
         target_layer = [conv_layers[-1]]
         tf_logger.info(f"GradCAM will be generated from {target_layer}")
