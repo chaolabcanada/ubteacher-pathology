@@ -19,25 +19,28 @@ def build_strong_augmentation(cfg, is_train):
     if is_train:
         # This is simialr to SimCLR https://arxiv.org/abs/2002.05709
         augmentation.append(
-            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8)
+            transforms.RandomApply([transforms.ColorJitter(0.3, 0.3, 0.3, 0.1)], p=0.4)
         )
         augmentation.append(transforms.RandomGrayscale(p=0.2))
-        augmentation.append(transforms.RandomApply([GaussianBlur([0.1, 2.0])], p=0.5))
+        #augmentation.append(transforms.RandomApply([GaussianBlur([0.1, 2.0])], p=0.2))
 
         # randomcrop
         randcrop_transform = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.RandomErasing(
-                    p=0.7, scale=(0.05, 0.2), ratio=(0.3, 3.3), value="random"
+                # convert float tensor to int tensor
+                transforms.Lambda(lambda x: x.mul(255).byte()),
+                transforms.RandomSolarize(128, p=0.2
                 ),
-                transforms.RandomErasing(
-                    p=0.5, scale=(0.02, 0.2), ratio=(0.1, 6), value="random"
+                transforms.RandomEqualize(p=0.2
                 ),
-                transforms.RandomErasing(
-                    p=0.3, scale=(0.02, 0.2), ratio=(0.05, 8), value="random"
+                transforms.RandomAdjustSharpness(0.1, p=0.2
                 ),
-                transforms.ToPILImage(),
+                transforms.RandomAutocontrast(p=0.2
+                ),
+                #transforms.RandomApply(transforms.RandomChannelPermutation(), p=0.2
+                #),
+                transforms.ToPILImage(),    
             ]
         )
         augmentation.append(randcrop_transform)

@@ -4,6 +4,7 @@ import logging
 import os #HACK
 import matplotlib.pyplot as plt #HACK
 from matplotlib import patches #HACK
+import sys
 
 import detectron2.data.detection_utils as utils
 from detectron2.utils.file_io import PathManager
@@ -16,7 +17,46 @@ import time
 from detectron2.data.dataset_mapper import DatasetMapper
 from PIL import Image
 from ubteacher.data.detection_utils import build_strong_augmentation
-from ubteacher.utils.utils import vis_image_with_annos #TODO: Use this to visualize the dataset for debugging
+from ubteacher.utils.utils import vis_image_with_annos, hed_color_augmenter #TODO: Use this to visualize the dataset for debugging
+
+
+def build_augmentation(cfg, is_train):
+        """
+        Use our version instead of detectron2's version so we can mess with it
+        Create a list of default :class:`Augmentation` from config.
+        Now it includes resizing and flipping.
+
+        Returns:
+            list[Augmentation]
+        """
+        if is_train:
+            min_size = cfg.INPUT.MIN_SIZE_TRAIN
+            max_size = cfg.INPUT.MAX_SIZE_TRAIN
+            sample_style = cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING
+        else:
+            min_size = cfg.INPUT.MIN_SIZE_TEST
+            max_size = cfg.INPUT.MAX_SIZE_TEST
+            sample_style = "choice"
+        augmentation = [T.ResizeShortestEdge(min_size, max_size, sample_style)] #TODO: Replace this with resize LONGEST edge
+        if is_train and cfg.INPUT.RANDOM_FLIP != "none":
+            augmentation.append(
+                T.RandomFlip(
+                    horizontal=cfg.INPUT.RANDOM_FLIP == "horizontal",
+                    vertical=cfg.INPUT.RANDOM_FLIP == "vertical",
+                )
+            )
+            
+        # NEW STUFF
+        new_transforms = [
+            T.RandomFlip(prob=0.5, horizontal=False, vertical=True),
+            T.RandomFlip(prob=0.5, horizontal=True, vertical=False),
+            T.RandomLighting(0.5),
+            T.RandomBrightness(0.8, 1.6),
+            T.RandomContrast(0.8, 1.6),
+            ]
+        augmentation.extend(new_transforms)
+        return augmentation
+
     
 class DatasetMapperTwoCropSeparate(DatasetMapper):
     
@@ -40,8 +80,9 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
     3. Prepare data and annotations to Tensor and :class:`Instances`
     """
 
+
     def __init__(self, cfg, is_train=True):
-        self.augmentation = utils.build_augmentation(cfg, is_train)
+        self.augmentation = build_augmentation(cfg, is_train)
         # include crop into self.augmentation
         if cfg.INPUT.CROP.ENABLED and is_train:
             self.augmentation.insert(
@@ -105,7 +146,7 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
             sem_seg_gt = None
 
         aug_input = T.StandardAugInput(image, sem_seg=sem_seg_gt)
-        transforms = aug_input.apply_augmentations(self.augmentation)
+        transforms = aug_input.apply_augmentations(self.augmentation) #Modify aug_input
         image_weak_aug, sem_seg_gt = aug_input.image, aug_input.sem_seg
         image_shape = image_weak_aug.shape[:2]  # h, w
 
@@ -152,8 +193,20 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
 
             bboxes_d2_format = utils.filter_empty_instances(instances)
             dataset_dict["instances"] = bboxes_d2_format
-            
-        ## visualize the dataset for debugging
+
+        
+        # apply strong augmentation
+        # We use torchvision augmentation, which is not compatiable with
+        # detectron2, which use numpy format for images. Thus, we need to
+        # convert to PIL format first.
+        image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
+        #image_strong_aug = hed_color_augmenter(image_strong_aug, (0, 0), (0, 0))
+        image_strong_aug = np.array(self.strong_augmentation(image_pil))
+        dataset_dict["image"] = torch.as_tensor(
+            np.ascontiguousarray(image_strong_aug.transpose(2, 0, 1))
+        )
+         
+               ## visualize the dataset for debugging
         if self.debug:
             out_dir = os.path.join(os.getcwd(), 'training_data_vis')
             os.makedirs(out_dir, exist_ok=True)
@@ -165,19 +218,9 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
                 if n > 2: #For only 2 augmentations
                     break
             try:    
-                vis_image_with_annos(image_weak_aug, annos, os.path.join(out_dir, vis_file))
+                vis_image_with_annos(image_strong_aug, annos, os.path.join(out_dir, vis_file))
             except:
                 pass
-        
-        # apply strong augmentation
-        # We use torchvision augmentation, which is not compatiable with
-        # detectron2, which use numpy format for images. Thus, we need to
-        # convert to PIL format first.
-        image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
-        image_strong_aug = np.array(self.strong_augmentation(image_pil))
-        dataset_dict["image"] = torch.as_tensor(
-            np.ascontiguousarray(image_strong_aug.transpose(2, 0, 1))
-        )
 
         dataset_dict_key = copy.deepcopy(dataset_dict)
         dataset_dict_key["image"] = torch.as_tensor(
