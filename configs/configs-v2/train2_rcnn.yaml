@@ -67,10 +67,14 @@ INPUT:
 ## New stuff
 NUMPY: True
 #UNLABELED_DIR: /mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/unlabeled
+DATASET_DICTS: None
+REGISTER: True
 ANNO_DIR: /mnt/RSX/Datasets_pathology/
 IMG_DIR: /mnt/RSX/Datasets_pathology/GT_2023/TissueFinderV2/
 FMT: .svs, .tif
 TRAIN_FRACTION: 0.8
 SET_SEED: False
+BOX_ONLY: True
 DATASEED: /home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/dataseed/simple_test.json
 DEBUG: False
+CLASS_CONVERTER: None

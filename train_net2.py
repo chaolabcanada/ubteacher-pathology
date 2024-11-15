@@ -44,10 +44,19 @@ def main(args):
         if cfg.DATASET_DICTS is not None:
             with open(cfg.DATASET_DICTS, 'r') as f:
                 dicts = json.load(f)
+                train_labeled = dicts['train_labeled']
+                val = dicts['val']
+                train_unlabeled = dicts['train_unlabeled']
+                classes = list(cfg.CAT_MAP.values())
+                register_dataset("train_labeled", train_labeled, classes)
+                register_dataset("val", val, classes)
+                register_dataset("train_unlabeled", train_unlabeled, classes)
+                '''
                 train_labeled, val = split_dataset(cfg, dicts)
                 classes = list(cfg.CAT_MAP.values())
                 register_dataset("train", train_labeled, classes)
-                register_dataset("val", val, classes)          
+                register_dataset("val", val, classes)  
+                '''        
         else:
             box_only = cfg.BOX_ONLY
             anno_dirs, img_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)
@@ -67,11 +76,12 @@ def main(args):
             dicts = []
             for anno_dir, img_dir in zip(anno_dirs, img_dirs):
                 for json_file in glob.glob(os.path.join(anno_dir, "*.json")):
-                    id = os.path.basename(json_file).split('.')[0]
                     try:
+                        id = os.path.basename(json_file).split('.')[0]
                         original_img_file = find_file(Path(anno_dir).parent, id, cfg.FMT)
                         img_file = os.path.join(img_dir, id + '.npy')
                         base_dim, target_dim = get_scaling(original_img_file, img_file)
+                        #base_dim, target_dim = (2560, 2560)
                         each_dict = ParseFromQuPath(anno_dir, 
                                                     img_dir, 
                                                     base_dim, 
@@ -80,7 +90,8 @@ def main(args):
                                                     class_file,
                                                     box_only
                                                     ).get_coco_format(json_file)
-                        dicts.append(each_dict[0])
+                        #each_dict = json.load(open(json_file))
+                        dicts.append(each_dict)
                     except:
                         print(f"Error parsing {json_file}")
                         pass
@@ -138,7 +149,6 @@ def main(args):
 
     trainer = Trainer(cfg)
     trainer.resume_or_load(resume=args.resume)
-
     return trainer.train()
 
     

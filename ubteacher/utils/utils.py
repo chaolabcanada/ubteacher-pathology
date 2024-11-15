@@ -13,6 +13,9 @@ import argparse
 from PIL import Image
 
 import torch #TODO: only import whats required if at all
+from scipy import linalg
+from skimage.exposure import rescale_intensity
+from skimage.util import dtype, dtype_limits
 from detectron2.data.catalog import DatasetCatalog, MetadataCatalog
 from detectron2.data import transforms as T
 from detectron2.data import detection_utils as utils  #TODO: remove this potentially
@@ -47,6 +50,49 @@ from detectron2.evaluation import (
 from ubteacher.solver.build import build_lr_scheduler
 
 ### Section 1: Data Processing and Loading ###
+
+
+def separate_stains(rgb, conv_matrix):
+
+    rgb = dtype.img_as_float(rgb, force_copy=True).astype('float32')
+    rgb += 2
+    stains = np.dot(np.reshape(-np.log(rgb), (-1, 3)), conv_matrix)
+    return np.reshape(stains, rgb.shape)
+
+def combine_stains(stains, conv_matrix):
+
+    stains = dtype.img_as_float(stains.astype('float64')).astype('float32')  # stains are out of range [-1, 1] so dtype.img_as_float complains if not float64
+    logrgb2 = np.dot(-np.reshape(stains, (-1, 3)), conv_matrix)
+    rgb2 = np.exp(logrgb2)
+    return rescale_intensity(np.reshape(rgb2 - 2, stains.shape),
+                             in_range=(-1, 1))
+
+def hed_color_augmenter(image: np.ndarray, sigma_range: tuple, bias_range: tuple) -> np.ndarray:
+    """HED from HE Auto Augment"""
+    
+    # RGB from HED formula
+    rgb_from_hed = np.array([[0.65, 0.70, 0.29],
+                         [0.07, 0.99, 0.11],
+                         [0.27, 0.57, 0.78]]).astype('float32')
+    hed_from_rgb = linalg.inv(rgb_from_hed).astype('float32')
+    
+    # rgb2head(rgb): return separate_stains(rgb, hed_from_rgb)
+    # hed2rgb(hed): return combine_stains(hed, rgb_from_hed)
+    sigmas = np.random.uniform(sigma_range[0], sigma_range[1], 3)
+    biases = np.random.uniform(bias_range[0], bias_range[1], 3)
+    
+    image_hed = separate_stains(image, hed_from_rgb)
+    image_hed[:, :, 0] *= (1 + sigmas[0])
+    image_hed[:, :, 0] += (1 + biases[0])
+    image_hed[:, :, 1] *= (1 + sigmas[1])
+    image_hed[:, :, 1] += (1 + biases[1])
+    image_hed[:, :, 2] *= (1 + sigmas[2])
+    image_hed[:, :, 2] += (1 + biases[2])
+    image_rgb = combine_stains(image_hed, rgb_from_hed)
+    image_rgb *= 255.0
+    image_rgb = image_rgb.astype(dtype=np.uint8)
+    
+    return image_rgb
 
 def find_anno_dir(parent_dir: str) -> List[str]:
     """
