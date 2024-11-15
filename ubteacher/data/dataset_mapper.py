@@ -17,7 +17,12 @@ import time
 from detectron2.data.dataset_mapper import DatasetMapper
 from PIL import Image
 from ubteacher.data.detection_utils import build_strong_augmentation
-from ubteacher.utils.utils import vis_image_with_annos, hed_color_augmenter #TODO: Use this to visualize the dataset for debugging
+from ubteacher.utils.utils import vis_image_with_annos #TODO: Use this to visualize the dataset for debugging
+
+sys.path.append(os.path.join(os.getcwd(), "pathology_he_auto_augment", "he_randaugment"))
+
+from pathology_he_auto_augment.he_randaugment import randaugment
+import random
 
 
 def build_augmentation(cfg, is_train):
@@ -51,11 +56,11 @@ def build_augmentation(cfg, is_train):
             T.RandomFlip(prob=0.5, horizontal=False, vertical=True),
             T.RandomFlip(prob=0.5, horizontal=True, vertical=False),
             T.RandomLighting(0.5),
-            T.RandomBrightness(0.8, 1.6),
+            T.RandomBrightness(0.8, 1.6), 
             T.RandomContrast(0.8, 1.6),
             ]
         augmentation.extend(new_transforms)
-        return augmentation
+        return augmentation    
 
     
 class DatasetMapperTwoCropSeparate(DatasetMapper):
@@ -199,9 +204,16 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         # We use torchvision augmentation, which is not compatiable with
         # detectron2, which use numpy format for images. Thus, we need to
         # convert to PIL format first.
-        image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
-        #image_strong_aug = hed_color_augmenter(image_strong_aug, (0, 0), (0, 0))
-        image_strong_aug = np.array(self.strong_augmentation(image_pil))
+        value = random.randint(0, 10)
+        if value > 7: # 30% of the time apply d2 strong aug
+            image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
+            #image_strong_aug = hed_color_augmenter(image_strong_aug, (0, 0), (0, 0))
+            image_strong_aug = np.array(self.strong_augmentation(image_pil))
+        elif value > 4: # 30% of the time apply hsv / hed randaug
+            image_strong_aug = randaugment.distort_image_with_randaugment(image_weak_aug, 2, 2, 'Default')
+        elif value > 0: # Remainder are untransformed
+            image_strong_aug = image_weak_aug  
+            
         dataset_dict["image"] = torch.as_tensor(
             np.ascontiguousarray(image_strong_aug.transpose(2, 0, 1))
         )
