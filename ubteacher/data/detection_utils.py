@@ -30,23 +30,14 @@ def build_strong_augmentation(cfg, is_train):
                 transforms.ToTensor(),
                 # convert float tensor to int tensor
                 transforms.Lambda(lambda x: x.mul(255).byte()),
-<<<<<<< HEAD
+                #transforms.RandomSolarize(128, p=0.2
+                #),
                 transforms.RandomEqualize(p=0.2
                 ),
                 transforms.RandomAdjustSharpness(0.1, p=0.2
                 ),
                 transforms.RandomAutocontrast(p=0.2
                 ),
-=======
-                transforms.RandomSolarize(128, p=0.2
-                ),
-                transforms.RandomEqualize(p=0.2
-                ),
-                transforms.RandomAdjustSharpness(0.1, p=0.2
-                ),
-                transforms.RandomAutocontrast(p=0.2
-                ),
->>>>>>> e672db9 (split augmenting logic)
                 #transforms.RandomApply(transforms.RandomChannelPermutation(), p=0.2
                 #),
                 transforms.ToPILImage(),    

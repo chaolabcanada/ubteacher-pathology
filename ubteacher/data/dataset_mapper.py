@@ -21,11 +21,7 @@ from ubteacher.utils.utils import vis_image_with_annos #TODO: Use this to visual
 
 sys.path.append(os.path.join(os.getcwd(), "pathology_he_auto_augment", "he_randaugment"))
 
-<<<<<<< HEAD
-from pathology_he_auto_augment.he_randaugment import randaugment
-=======
 from pathology_he_auto_augment.he_randaugment.augmenters.color.hedcoloraugmenter import HedColorAugmenter
->>>>>>> e672db9 (split augmenting logic)
 import random
 
 
@@ -57,21 +53,14 @@ def build_augmentation(cfg, is_train):
             
         # NEW STUFF
         new_transforms = [
-<<<<<<< HEAD
-            T.RandomFlip(prob=0.5, horizontal=False, vertical=True),
-            T.RandomFlip(prob=0.5, horizontal=True, vertical=False),
-=======
             #T.RandomFlip(prob=0.5, horizontal=False, vertical=True),
             #T.RandomFlip(prob=0.5, horizontal=True, vertical=False),
->>>>>>> e672db9 (split augmenting logic)
             T.RandomLighting(0.5),
             T.RandomBrightness(0.8, 1.6), 
             T.RandomContrast(0.8, 1.6),
             ]
         augmentation.extend(new_transforms)
         return augmentation    
-<<<<<<< HEAD
-=======
     
 def hed_augmentation(image, factor):
     image=np.transpose(image,[2,0,1])
@@ -82,7 +71,6 @@ def hed_augmentation(image, factor):
     #To select a random magnitude value between -factor:factor, if commented the m value will be constant
     augmentor.randomize()
     return np.transpose(augmentor.transform(image),[1,2,0])
->>>>>>> e672db9 (split augmenting logic)
 
     
 class DatasetMapperTwoCropSeparate(DatasetMapper):
@@ -226,16 +214,6 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         # We use torchvision augmentation, which is not compatiable with
         # detectron2, which use numpy format for images. Thus, we need to
         # convert to PIL format first.
-<<<<<<< HEAD
-        value = random.randint(0, 10)
-        if value > 7: # 30% of the time apply d2 strong aug
-            image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
-            #image_strong_aug = hed_color_augmenter(image_strong_aug, (0, 0), (0, 0))
-            image_strong_aug = np.array(self.strong_augmentation(image_pil))
-        elif value > 4: # 30% of the time apply hsv / hed randaug
-            image_strong_aug = randaugment.distort_image_with_randaugment(image_weak_aug, 2, 2, 'Default')
-        elif value > 0: # Remainder are untransformed
-=======
         value = random.randint(0, 9)
         if value > 6: # 1/3 of the time apply d2 strong aug
             image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
@@ -244,7 +222,6 @@ class DatasetMapperTwoCropSeparate(DatasetMapper):
         elif value > 3: # 1/3 of the time apply hsv / hed randaug
             image_strong_aug = hed_augmentation(image_weak_aug, 0.05)
         else: # Remainder are untransformed
->>>>>>> e672db9 (split augmenting logic)
             image_strong_aug = image_weak_aug  
             
         dataset_dict["image"] = torch.as_tensor(
