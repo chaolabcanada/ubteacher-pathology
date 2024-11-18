@@ -274,7 +274,7 @@ class AnnoUtil:
                 instance["bbox"] = v
                 instance["bbox_mode"] = 0  # detectron2.structures.BoxMode(XYXY_ABS=0)
             annotations.append(instance)
-        return annotations 
+        return annotations
 
 class TrainUtil:
     def __init__(self, max_dimension=1333) -> None:
@@ -365,6 +365,7 @@ class TrainUtil:
                     continue
                 else:
                     target = lvl_idx -1
+                    break
             # Read image
             try:
                 img = pyramid_reader[target].asarray()
@@ -380,9 +381,19 @@ class TrainUtil:
         if cropped_img.shape[0]>self.max_dim or cropped_img.shape[1]>self.max_dim:
             cropped_img = resize_image(cropped_img, self.max_dim)
         return cropped_img
-            
-       
     
+    def get_base_dim(self, wsi_path):
+        with tf.TiffFile(wsi_path) as tiff:
+            if len(tiff.series[0].levels) > 1:
+                # Use levels to read
+                pyramid_reader = tiff.series[0].levels
+            else:
+                # Use pages to read
+                pyramid_reader = tiff.pages
+            ref_dim = channel_last(pyramid_reader[0].shape)
+        return ref_dim
+        
+                
     def crop_image_to_dim(self, wsi_path: str, ref_box: List, ref_dim: Union[Tuple, List]) -> np.ndarray:
         """ Get an image crop from the correct pyramid level
         such that the ideal target dimensions are achieved in the crop
@@ -441,7 +452,6 @@ class TrainUtil:
         # Check if image pyramid is organized into levels (most files) or pages (rare)
         max_dim = self.max_dim
         top = np.array([])
-
         # Find the top of the image pyramid
         if len(tiff.series[0].levels) > 1:
             # Use levels to load
