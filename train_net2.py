@@ -44,20 +44,19 @@ def main(args):
         if cfg.DATASET_DICTS is not None:
             with open(cfg.DATASET_DICTS, 'r') as f:
                 dicts = json.load(f)
-                if not cfg.DATASETS.CROSS_DATASET:
-                    train = dicts['train']
-                    val = dicts['val']
-                    classes = list(cfg.CAT_MAP.values())
-                    register_dataset("train", train, classes)
-                    register_dataset("val", val, classes)
-                else:
-                    train_labeled = dicts['train_labeled']
-                    val = dicts['val']
-                    train_unlabeled = dicts['train_unlabeled']
-                    classes = list(cfg.CAT_MAP.values())
-                    register_dataset("train_labeled", train_labeled, classes)
-                    register_dataset("val", val, classes)
-                    register_dataset("train_unlabeled", train_unlabeled, classes)       
+                train_labeled = dicts['train_labeled']
+                val = dicts['val']
+                train_unlabeled = dicts['train_unlabeled']
+                classes = list(cfg.CAT_MAP.values())
+                register_dataset("train_labeled", train_labeled, classes)
+                register_dataset("val", val, classes)
+                register_dataset("train_unlabeled", train_unlabeled, classes)
+                '''
+                train_labeled, val = split_dataset(cfg, dicts)
+                classes = list(cfg.CAT_MAP.values())
+                register_dataset("train", train_labeled, classes)
+                register_dataset("val", val, classes)  
+                '''        
         else:
             box_only = cfg.BOX_ONLY
             anno_dirs, img_dirs = find_dirs(cfg.ANNO_DIR, cfg.IMG_DIR)

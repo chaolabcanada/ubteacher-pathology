@@ -11,11 +11,82 @@ import matplotlib.pyplot as plt
 from matplotlib import patches
 import cv2
 import argparse
+import glob
 
 import torch #TODO: only import whats required if at all
 from detectron2.data.catalog import DatasetCatalog, MetadataCatalog
 from detectron2.data import transforms as T
 from detectron2.data import detection_utils as utils  #TODO: remove this potentially
+
+
+## NEW for 2024-11
+
+class Registration:
+    def __init__(self, data_dir, is_unlabeled, train_fraction, cat_map):
+        self.is_unlabeled = is_unlabeled
+        self.data_dir = data_dir
+        self.train_fraction = train_fraction
+        self.cat_map = cat_map
+        
+        # set expected train_labeled, train_unlabeled, val naming convention
+        self.dset_types = ['train_labeled', 'train_unlabeled', 'val']
+        
+    def accumulate_annos(self):
+        """Helper function to accumulate annotations from a directory of .json files
+        and return a list of dictionaries in detectron2 dataset format.
+
+        Args:
+        data_dir -- directory containing .json files
+        is_unlabeled -- boolean indicating whether the dataset is unlabeled
+        train_fraction -- fraction of dataset to use for training
+        """
+        
+        labeled_annos = []
+        unlabeled_annos = []
+        
+        for file in glob.glob(os.path.join(self.data_dir, "*.npy")):
+            anno_file = file.replace(".npy", ".json")
+            with open(anno_file, 'r') as f:
+                anno = json.load(f)
+                if not self.is_unlabeled:
+                    labeled_annos.append(anno)   
+                else:
+                    if anno['labeled'] == 'True':
+                        labeled_annos.append(anno)
+                    else:
+                        unlabeled_annos.append(anno)
+                 
+        # train test split the labeled_annos
+        random.shuffle(labeled_annos)
+        split_idx = int(self.train_fraction * len(labeled_annos))
+        train_annos = labeled_annos[:split_idx]
+        val_annos = labeled_annos[split_idx:]
+        
+        return [train_annos, unlabeled_annos, val_annos]
+    
+    def register_all(self, dataset_dicts: dict):
+            """Helper function to register a new dataset to detectron2's
+            Datasetcatalog and Metadatacatalog.
+
+            Args:
+            dataset_dicts -- list of dicts in detectron2 dataset format
+            cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
+            """
+            
+            for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
+            
+                # Register dataset to DatasetCatalog
+                print(f"working on '{dset_type}'...")
+            
+                DatasetCatalog.register(
+                    dset_type,
+                    lambda d=dset_type: dset_dicts
+                )
+                # Register metadata to MetadataCatalog
+                MetadataCatalog.get(dset_type).set(
+                    thing_classes=sorted([k for k in self.cat_map.keys()]),
+                )
+                return
 
 ### Section 1: Data Processing and Loading ###
 

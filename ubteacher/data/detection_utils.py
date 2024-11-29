@@ -30,6 +30,8 @@ def build_strong_augmentation(cfg, is_train):
                 transforms.ToTensor(),
                 # convert float tensor to int tensor
                 transforms.Lambda(lambda x: x.mul(255).byte()),
+                #transforms.RandomSolarize(128, p=0.2
+                #),
                 transforms.RandomEqualize(p=0.2
                 ),
                 transforms.RandomAdjustSharpness(0.1, p=0.2
