@@ -144,7 +144,7 @@ class AnnoUtil:
                 # (use for loop to call)
                 yield v
 
-    def get_box_name(self, annotation_instance: Dict) -> str:
+    def get_box_name(self, annotation_instance: Dict) -> str: #TODO: this doesnt make any sense
         """Find and return the name of an annotated bounding box.
 
         Args:
@@ -165,7 +165,7 @@ class AnnoUtil:
                         cls_name = properties["classification"]["name"].lower()
                         box_name = f"{property_name}_{cls_name}"
                     else:
-                        box_name = properties["name"].lower()
+                        box_name = properties['classification']["name"].lower()
                     return box_name
                 else:
                     return None

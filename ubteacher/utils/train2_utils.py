@@ -130,7 +130,7 @@ def find_dirs(anno_parent: str, img_parent: str) -> List[str]:
             anno_subdir = os.path.basename(anno_dirs[int(choice)])
         else:
             raise ValueError('Annotation folder not found')
-    
+        
     total_annos = []
     for img_dir in img_dirs:
         base_dir = os.path.basename(img_dir)
@@ -222,14 +222,15 @@ class ParseFromQuPath:
         x_scale = self.ref_dim[1] / self.target_dim[1]
         y_scale = self.ref_dim[0] / self.target_dim[0]
         for i in anno:
-            [coords] = i['coordinates']
-            # First, build XYXY
-            x0 = int(coords[0][0] / x_scale)
-            y0 = int(coords[0][1] / y_scale)
-            x1 = int(coords[2][0] / x_scale)
-            y1 = int(coords[2][1] / y_scale)
-            i['bbox'] = [x0, y0, x1, y1]
-            del i['coordinates']
+            if len(i['coordinates']) <= 5:
+                [coords] = i['coordinates']
+                # First, build XYXY
+                x0 = int(coords[0][0] / x_scale)
+                y0 = int(coords[0][1] / y_scale)
+                x1 = int(coords[2][0] / x_scale)
+                y1 = int(coords[2][1] / y_scale)
+                i['bbox'] = [x0, y0, x1, y1]
+                del i['coordinates']
         return anno
     
     def scale_polygons_qupath(self, anno):
@@ -288,6 +289,8 @@ class ParseFromQuPath:
     def get_boxes(self, json_file):
         with open(json_file, 'r') as f:
             data = json.load(f)
+            if not type(data) == list:
+                data = [data]
         tissue_data = []
         for i in data:
             if not self.class_file:
