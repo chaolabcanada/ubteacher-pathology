@@ -31,6 +31,15 @@ class Registration:
         # set expected train_labeled, train_unlabeled, val naming convention
         self.dset_types = ['train_labeled', 'train_unlabeled', 'val']
         
+        
+    def check_computer(self, anno):
+        subdir_count = int(self.datadir.count('/'))
+        if str(self.data_dir) not in anno["file_name"]:
+            anno_relative = anno["file_name"].split('/')[subdir_count:]
+            anno["file_name"] = os.path.join(self.data_dir, anno_relative)
+        return anno          
+           
+        
     def accumulate_annos(self):
         """Helper function to accumulate annotations from a directory of .json files
         and return a list of dictionaries in detectron2 dataset format.
@@ -44,17 +53,20 @@ class Registration:
         labeled_annos = []
         unlabeled_annos = []
         
-        for file in glob.glob(os.path.join(self.data_dir, "*.npy")):
-            anno_file = file.replace(".npy", ".json")
-            with open(anno_file, 'r') as f:
-                anno = json.load(f)
-                if not self.is_unlabeled:
-                    labeled_annos.append(anno)   
-                else:
-                    if anno['labeled'] == 'True':
-                        labeled_annos.append(anno)
+        # access each folder within data_dir
+        for folder in os.scandir(self.data_dir):
+            for file in glob.glob(os.path.join(self.data_dir, folder, "*.npy")):
+                anno_file = file.replace(".npy", ".json")
+                with open(anno_file, 'r') as f:
+                    anno = json.load(f)
+                    anno = self.check_computer(anno)
+                    if not self.is_unlabeled:
+                        labeled_annos.append(anno)   
                     else:
-                        unlabeled_annos.append(anno)
+                        if anno['labeled'] == 'True':
+                            labeled_annos.append(anno)
+                        else:
+                            unlabeled_annos.append(anno)
                  
         # train test split the labeled_annos
         random.shuffle(labeled_annos)
