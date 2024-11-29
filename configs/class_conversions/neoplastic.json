@@ -1,5 +1,6 @@
 {   
     "non-neoplastic": [
+        "non-neoplastic",
         "keratin", 
         "necrosis",
         "fea-sure",
@@ -13,10 +14,18 @@
         "udh-sure",
         "adh",
         "adh-sure",
-        "other"
+        "other",
+        "hyp",
+        "hyo",
+        "lm",
+        "vhyp",
+        "sg",
+        "d1"
     ],
 
     "neoplastic": [
+        "ROI",
+        "neoplastic",
         "tumor",
         "dcis",
         "dcis-sure",
@@ -24,10 +33,14 @@
         "malignant",
         "invasive",
         "carcinoma",
-        "primary"
+        "primary",
+        "scc",
+        "d2",
+        "d3"
     ],
 
     "ignore": [
+        "ignore",
         "junk"
     ]
 }
