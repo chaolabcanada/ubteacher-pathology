@@ -33,9 +33,10 @@ class Registration:
         
         
     def check_computer(self, anno):
-        subdir_count = int(self.datadir.count('/'))
+        subdir_count = int(self.data_dir.count('/') - 1)
         if str(self.data_dir) not in anno["file_name"]:
-            anno_relative = anno["file_name"].split('/')[subdir_count:]
+            relative_folders = (anno["file_name"].split('/')[subdir_count:])
+            anno_relative = os.path.join(*relative_folders)
             anno["file_name"] = os.path.join(self.data_dir, anno_relative)
         return anno          
            
@@ -56,7 +57,11 @@ class Registration:
         # access each folder within data_dir
         for folder in os.scandir(self.data_dir):
             for file in glob.glob(os.path.join(self.data_dir, folder, "*.npy")):
-                anno_file = file.replace(".npy", ".json")
+                f_name = os.path.basename(file).split('.')[0]
+                anno_file = os.path.join(self.data_dir, folder, "tissue_annotations", f_name + ".json")
+                if not os.path.exists(anno_file):
+                    print(f"Annotation file not found for {file}")
+                    continue
                 with open(anno_file, 'r') as f:
                     anno = json.load(f)
                     anno = self.check_computer(anno)
@@ -77,28 +82,28 @@ class Registration:
         return [train_annos, unlabeled_annos, val_annos]
     
     def register_all(self, dataset_dicts: dict):
-            """Helper function to register a new dataset to detectron2's
-            Datasetcatalog and Metadatacatalog.
+        """Helper function to register a new dataset to detectron2's
+        Datasetcatalog and Metadatacatalog.
 
-            Args:
-            dataset_dicts -- list of dicts in detectron2 dataset format
-            cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
-            """
-            
-            for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
-            
-                # Register dataset to DatasetCatalog
-                print(f"working on '{dset_type}'...")
-            
-                DatasetCatalog.register(
-                    dset_type,
-                    lambda d=dset_type: dset_dicts
-                )
-                # Register metadata to MetadataCatalog
-                MetadataCatalog.get(dset_type).set(
-                    thing_classes=sorted([k for k in self.cat_map.keys()]),
-                )
-                return
+        Args:
+        dataset_dicts -- list of dicts in detectron2 dataset format
+        cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
+        """
+        
+        for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
+        
+            # Register dataset to DatasetCatalog
+            print(f"working on '{dset_type}'...")
+        
+            DatasetCatalog.register(
+                dset_type,
+                lambda d=dset_type: dset_dicts
+            )
+            # Register metadata to MetadataCatalog
+            MetadataCatalog.get(dset_type).set(
+                thing_classes=sorted([k for k in self.cat_map.keys()]),
+            )
+        return
 
 ### Section 1: Data Processing and Loading ###
 
