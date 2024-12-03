@@ -525,7 +525,8 @@ if __name__ == "__main__":
         img_size = cfg.INPUT.MAX_SIZE_TRAIN
         cfg.INPUT.MAX_SIZE_TEST = img_size
     try:
-        cat_map = cfg.CATEGORICAL_MAP[0]
+        #cat_map = cfg.CATEGORICAL_MAP[0] #TODO: resolve cat_map vs. categorical_map in train_net3
+        cat_map = {'0' : 'neoplastic', '1' : 'other'}
     except IndexError or AttributeError:
         print("'CATEGORICAL_MAP' was not loaded from config! Please check!")
     try:
