@@ -23,15 +23,18 @@ def setup(args):
 def main(args):
     cfg = setup(args)
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    
+    out_dir = cfg.OUTPUT_DIR
     data_dir = cfg.DATA_DIR
     is_unlabeled = cfg.DATASETS.CROSS_DATASET
     train_fraction = cfg.TRAIN_FRACTION
     cat_map = cfg.CAT_MAP
     
-    reg = Registration(data_dir, is_unlabeled, train_fraction, cat_map)
-    dataset_dicts = reg.accumulate_annos()
-    reg.register_all(dataset_dicts)
+    if cfg.REGISTER:    
+        reg = Registration(data_dir, is_unlabeled, train_fraction, cat_map, out_dir)
+        dataset_dicts = reg.accumulate_annos()
+        reg.register_all(dataset_dicts)
+    
+    # TODO: support loading from existing dataset_dicts
     
     # train
     print("Starting training...")
@@ -39,24 +42,6 @@ def main(args):
         Trainer = UBRCNNTeacherTrainer
     else:
         Trainer = BaselineTrainer #Combined from ubteacher v1
-        
-    if args.eval_only:
-        if cfg.SEMISUPNET.Trainer == "ubteacher":
-            model = Trainer.build_model(cfg)
-            model_teacher = Trainer.build_model(cfg)
-            ensem_ts_model = EnsembleTSModel(model_teacher, model)
-
-            DetectionCheckpointer(
-                ensem_ts_model, save_dir=cfg.OUTPUT_DIR
-            ).resume_or_load(cfg.MODEL.WEIGHTS, resume=args.resume)
-            res = Trainer.test(cfg, ensem_ts_model.modelTeacher)
-        else:
-            model = Trainer.build_model(cfg)
-            DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
-                cfg.MODEL.WEIGHTS, resume=args.resume
-            )
-            res = Trainer.test(cfg, model)
-        return res
         
     trainer = Trainer(cfg)
     trainer.resume_or_load(resume=args.resume)

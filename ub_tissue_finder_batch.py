@@ -380,8 +380,6 @@ def process_item(output_dir, registered_metadata, input_output_tuple: tuple, **k
         return message
     
     pred_data = post_processor.process_predictions()
-        #combine scores into labels
-    pred_data['labels'] = [f"{label} : {np.round(score, 3)}" for label, score in zip(pred_data['labels'], pred_data['scores'])]
     
     # Create visualizations
     visualizer = Visualizer(
@@ -515,9 +513,10 @@ if __name__ == "__main__":
         img_size = cfg.INPUT.MAX_SIZE_TRAIN
         cfg.INPUT.MAX_SIZE_TEST = img_size
     try:
-        cat_map = cfg.CATEGORICAL_MAP[0]
+       cat_map = cfg.CATEGORICAL_MAP[0]
     except IndexError or AttributeError:
         print("'CATEGORICAL_MAP' was not loaded from config! Please check!")
+        #cat_map = {'neoplastic' : 0}
     try:
         detection_mode = cfg.DETECTION_MODE
     except AttributeError:
@@ -600,26 +599,30 @@ if __name__ == "__main__":
         # Process GradCAM if requested, no multiprocessing to avoid CUDA out of memory
         if make_gradcam:
             for input_item in inputs:
-                class_cams, output_item = gradcam.GenerateCam(model, input_item, target_layer)()
-                pred_info = process_item(
-                                output_dir, 
-                                metadata,
-                                (input_item, output_item),
-                                cam_data = class_cams
-                            )
-                pred_info = [pred_info]
-                """
-                fig = plt.figure()
-                fig.suptitle(input_item['image_id'])
-                num_subplots = len(class_cams.items())
-                for n, (cls, cam) in enumerate(class_cams.items()):
-                    ax = fig.add_subplot(1, num_subplots, n+1)
-                    ax.imshow(cam)
-                    ax.set_title(f"GradCam: {metadata.thing_classes[cls]}")
-                plt.savefig(os.path.join(output_dir, f"{input_item['image_id']}_gradcam.png"), format='png', dpi=150)
-                plt.close()
-                """
-                torch.cuda.empty_cache()
+                try:
+                    class_cams, output_item = gradcam.GenerateCam(model, input_item, target_layer)()
+                    pred_info = process_item(
+                                    output_dir, 
+                                    metadata,
+                                    (input_item, output_item),
+                                    cam_data = class_cams
+                                )
+                    pred_info = [pred_info]
+                    """
+                    fig = plt.figure()
+                    fig.suptitle(input_item['image_id'])
+                    num_subplots = len(class_cams.items())
+                    for n, (cls, cam) in enumerate(class_cams.items()):
+                        ax = fig.add_subplot(1, num_subplots, n+1)
+                        ax.imshow(cam)
+                        ax.set_title(f"GradCam: {metadata.thing_classes[cls]}")
+                    plt.savefig(os.path.join(output_dir, f"{input_item['image_id']}_gradcam.png"), format='png', dpi=150)
+                    plt.close()
+                    """
+                    torch.cuda.empty_cache()
+                except:
+                    print(f"Error in processing")
+                    continue
         else:        
             with torch.no_grad():
                 batch_preds = model(inputs)
