@@ -168,37 +168,11 @@ class Registration:
         MetadataCatalog.get(reg_name).set(
             thing_classes=sorted([k for k in self.cat_map.keys()]),
         )
-        return MetadataCatalog
-    
-    def register_all(self, dataset_dicts: dict):
-        """Helper function to register a new dataset to detectron2's
-        Datasetcatalog and Metadatacatalog.
-
-        Args:
-        dataset_dicts -- list of dicts in detectron2 dataset format
-        cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
-        """
         
-        for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
-            # Register dataset to DatasetCatalog
-            print(f"working on '{dset_type}'...")
-            
-            DatasetCatalog.register(
-                dset_type,
-                lambda d=dset_type: dset_dicts
-            )
-            
-            # Register metadata to MetadataCatalog
-            MetadataCatalog.get(dset_type).set(
-                thing_classes=sorted([k for k in self.cat_map.keys()]),
-            )
-            
         # Save dataset_dicts to disk in out dir
-        for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
-            with open(os.path.join(self.out_dir, f"{dset_type}.json"), 'w') as f:
-                json.dump(dset_dicts, f)
-                
-        return 
+        with open(os.path.join(self.out_dir, f"{reg_name}.json"), 'w') as f:
+            json.dump(dataset_dicts, f)
+        return MetadataCatalog
 
 ### Section 1: Data Processing and Loading ###
 

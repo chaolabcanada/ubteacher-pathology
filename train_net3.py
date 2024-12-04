@@ -7,6 +7,11 @@ from detectron2.engine import default_argument_parser, default_setup, launch
 import os
 from utils.train_utils import Registration, CustomRepeatScheduler
 
+class CustomUBRCNNTeacherTrainer(UBRCNNTeacherTrainer):
+    def build_lr_scheduler(self, cfg, optimizer):
+        # Return your custom scheduler instead
+        return CustomRepeatScheduler(optimizer, cfg.SEMISUPNET.BURN_UP_STEP, cfg.SOLVER.MAX_ITER)
+
 def setup(args):
     """
     Create configs and perform basic setups.
@@ -42,7 +47,7 @@ def main(args):
     # train
     print("Starting training...")
     if cfg.SEMISUPNET.Trainer == "ubteacher_rcnn":
-        Trainer = UBRCNNTeacherTrainer
+        Trainer = CustomUBRCNNTeacherTrainer
     else:
         Trainer = BaselineTrainer #Combined from ubteacher v1
         
