@@ -115,8 +115,8 @@ def dimensions_index(info_dict: dict) -> int:
 
 def auto_detect_annotation_dir(src_dir):
     """
-    If qupath_annotations_latest exists in src_dir, return it.
-    Otherwise, prompt the user from a list of directories found in src_dir.
+    If `qupath_annotations_latest` exists in `src_dir`, return it.
+    Otherwise, prompt the user from a list of directories found in `src_dir`.
     """
     # Candidate default
     candidate = os.path.join(src_dir, 'qupath_annotations_latest')
@@ -156,6 +156,90 @@ def auto_detect_annotation_dir(src_dir):
                 print("Invalid input.")
                 return None
 
+
+def pick_level_that_fits(info_dict: dict, max_dim: int) -> int:
+    """
+    Given an info_dict describing a WSI's pyramid levels (from OpenSlide),
+    return an integer index identifying which level does not exceed
+    the given max_dim (on both width and height).
+
+    Heuristic:
+      1. Iterate from level 0 (full resolution) down to the last level
+         (highest downsampling).
+      2. Find the largest level that fits within max_dim.
+      3. If none fit, return the index of the smallest level.
+
+    Parameters
+    ----------
+    info_dict : dict
+        A dictionary from `convert_openslide_to_dict(reader)` or similar,
+        containing the keys:
+          - 'level_dimensions': Tuple of ( (W0, H0), (W1, H1), ..., (Wn, Hn) )
+          - 'level_count':      Number of levels
+    max_dim : int
+        The maximum allowed size (in pixels) for width/height.
+
+    Returns
+    -------
+    int
+        The best level index.
+    """
+
+    # e.g., info_dict['level_dimensions'] might be:
+    #   ((50000, 30000), (25000, 15000), (12500, 7500), ...)
+    levels = info_dict['level_dimensions']
+    level_count = info_dict['level_count']
+
+    chosen_level = level_count - 1  # default to the smallest level
+
+    for level_idx in range(level_count):
+        w, h = levels[level_idx]
+        # If both sides fit in max_dim, this is a candidate.
+        if w <= max_dim and h <= max_dim:
+            chosen_level = level_idx
+            break  # because we want the largest level that still fits
+
+    return chosen_level
+
+
+def pick_level_that_fits_tiff(pyramid_reader, base_dim: Tuple[int, int], max_dim: int) -> int:
+    """
+    Chooses which level from TiffFile's pyramid_reader best fits under max_dim.
+    'pyramid_reader' is typically a list/tuple of pages or levels.
+
+    Returns an integer index of the chosen level.
+    """
+    chosen_level = len(pyramid_reader) - 1  # default to the smallest level
+    for idx, level_page in enumerate(pyramid_reader):
+        # shape might be (height, width, channels) or (height, width)
+        level_shape = level_page.shape
+        # If the array has channels last, shape is (H, W, C), else (H, W)
+        if len(level_shape) == 3:
+            h, w, _ = level_shape
+        else:
+            h, w = level_shape
+
+        if w <= max_dim and h <= max_dim:
+            chosen_level = idx
+            break  # pick the largest level that fits
+    return chosen_level
+
+
+def get_level_scale_factor(info_dict: dict, target_level: int) -> float:
+    """
+    Returns how much smaller the target_level is compared to level 0.
+    If level 0 is 50000x30000 and level 2 is 12500x7500,
+    then scale factor = 0.25.
+    """
+    base_w, base_h = info_dict['level_dimensions'][0]
+    t_w, t_h = info_dict['level_dimensions'][target_level]
+    # They might not exactly match the same ratio, but we’ll approximate
+    scale_w = t_w / base_w
+    scale_h = t_h / base_h
+    # Typically these should be nearly identical, but let's pick one 
+    # or average them if you want
+    return (scale_w + scale_h) / 2.0
+
 #################################### ENDS HERE
 
 
@@ -193,15 +277,15 @@ def process_unlabeled(image_file, annos, max_dim, out_dir, base_dim, info_dict, 
             # print("    ", f"annotation is '{k}'")
 
             if not use_tiff:
-                print(info_dict)
+                # print(info_dict)
                 reader = OpenSlide(image_file)
                 for level_idx in range(len(info_dict['level_dimensions'])):
                     level_dim = info_dict['level_dimensions'][level_idx]
                     level_dim = level_dim[::-1] # match the tifffile format
                     level_crop = train_utils.scale_bboxes([tissue_coords_base], base_dim, level_dim)[0]
                     cx1, cy1, cx2, cy2 = [int(i) for i in level_crop]
-                    print("level_dim is ^^^^^^^^^^^^^^^^", level_dim)
-                    print("level_crop is ^^^^^^^^^^^^^^^", level_crop)
+                    # print("level_dim is ^^^^^^^^^^^^^^^^", level_dim)
+                    # print("level_crop is ^^^^^^^^^^^^^^^", level_crop)
                     crop_w = cx2-cx1
                     crop_h = cy2-cy1
                     if crop_h>max_dim or crop_w>max_dim:
@@ -212,8 +296,8 @@ def process_unlabeled(image_file, annos, max_dim, out_dir, base_dim, info_dict, 
                         break
                 something = info_dict['level_dimensions'][target_level]
                 input_image = reader.read_region(location=(0, 0), level=target_level, size=something).convert('RGB')
-                print(input_image)
-                print("##################################")
+                # print(input_image)
+                # print("##################################")
                 input_image = np.array(input_image)
             else:
                 if len(slide.series[0].levels) > 1:
@@ -295,25 +379,22 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
 
     image_id = os.path.basename(image_file).split(".")[0]
     with tf.TiffFile(image_file) as slide:
-        print("entered smth")# Process each tissue
         for n, a in enumerate(annos):
-            print("this shit not working?")
             # Calculate cropped tissue dimensions at each level of the image pyramid
             for k, v in a.items():
                 tissue_coords_base = v
                 tx1, ty1, tx2, ty2 = tissue_coords_base
                 base_long_edge = max(tx2-tx1, ty2-ty1)
-            # print("    ", f"annotation is '{k}'")
             if not use_tiff:
-                print(info_dict)
+                # print(info_dict)
                 reader = OpenSlide(image_file)
                 for level_idx in range(len(info_dict['level_dimensions'])):
                     level_dim = info_dict['level_dimensions'][level_idx]
                     level_dim = level_dim[::-1] # match the tifffile format
                     level_crop = train_utils.scale_bboxes([tissue_coords_base], base_dim, level_dim)[0]
                     cx1, cy1, cx2, cy2 = [int(i) for i in level_crop]
-                    print("level_dim is ^^^^^^^^^^^^^^^^", level_dim)
-                    print("level_crop is ^^^^^^^^^^^^^^^", level_crop)
+                    # print("level_dim is ^^^^^^^^^^^^^^^^", level_dim)
+                    # print("level_crop is ^^^^^^^^^^^^^^^", level_crop)
                     crop_w = cx2-cx1
                     crop_h = cy2-cy1
                     if crop_h>max_dim or crop_w>max_dim:
@@ -324,8 +405,8 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                         break
                 something = info_dict['level_dimensions'][target_level]
                 input_image = reader.read_region(location=(0, 0), level=target_level, size=something).convert('RGB')
-                print(input_image)
-                print("##################################")
+                # print(input_image)
+                # print("##################################")
                 input_image = np.array(input_image)
 
             else:
@@ -340,8 +421,8 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                     level_dim = train_utils.channel_last(level.shape)
                     level_crop = train_utils.scale_bboxes([tissue_coords_base], base_dim, level_dim)[0]
                     cx1, cy1, cx2, cy2 = [int(i) for i in level_crop]
-                    print("level_dim is", level_dim)
-                    print("level_crop is ", level_crop)
+                    # print("level_dim is", level_dim)
+                    # print("level_crop is ", level_crop)
                     crop_w = cx2-cx1
                     crop_h = cy2-cy1
                     if crop_h>max_dim or crop_w>max_dim:
@@ -350,25 +431,15 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                     else:
                         target_level = level_idx - 1
                         break
-                print(pyramid_reader[target_level])
+                # print(pyramid_reader[target_level])
                 input_image = pyramid_reader[target_level].asarray() # Could this be the clue to replace openslide???
                 input_image = train_utils.channel_last(input_image)
                 # region_image = Image.fromarray(input_image)
                 # print(region_image)
-
-                ### experiments below ###
-                # series = slide.series
-                # page_series = series[target_level]
-                # full_level_array = page_series.asarray()  # shape: (height, width, channels)
-                # region_image = Image.fromarray(full_level_array)
-                # print(region_image)
             
             # Read image at the correct level
-            print("target is", target_level)
-            
-            
-            
-            print(input_image)
+            # print("target is", target_level)
+            # print(input_image)
             # Recrop image NOTE CropTransform needs input in XYWH
             recrop_coord = train_utils.scale_bboxes([tissue_coords_base], base_dim, input_image.shape)[0]
             rx1, ry1, rx2, ry2 = [int(i) for i in recrop_coord]
@@ -402,7 +473,6 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
             annotation_dicts = []
             
             # Scale and offset lesion annotations (polygons) to tissue
-            #print("    ", "Resizing lesion annotations (polygons)...")
             processed_polygons = []
             polygon_names = []
             poly_bboxes = []
@@ -510,7 +580,6 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
     image_file = os.path.join(src_dir, image_id+image_ext)
     
     if not use_tiff:
-        print("using openslide in lesion_finder_gt")
         reader = OpenSlide(image_file)
         info_dict = convert_openslide_to_dict(reader)
         dimension_index, downsampling_factor = dimensions_index(info_dict)
@@ -588,13 +657,158 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
         #Execute processing function
         class_conversion_file = '/home/chao_lab/SynologyDrive/chaolab_AI_path/unbiased_teacher2/configs/class_conversions/neoplastic.json'
         
-        print("am i cooked?")
         with open(class_conversion_file) as f:
             class_conv = json.load(f)
         process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, base_dim, out_dir, use_tiff, info_dict, is_human_labeled)
     else:
         process_unlabeled(image_file, annos, max_dim, out_dir, base_dim, info_dict, is_human_labeled)
     return print(f"Finished processing {image_id}")
+
+
+def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int, annos_dir: str, use_tiff: bool, is_human_labeled: bool, valid_tissues=None):
+    if valid_tissues is None:
+        valid_tissues = []
+
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    image_id = os.path.basename(image_path).split('.')[0]
+    image_ext = '.' + image_path.split('.')[-1]
+    image_file = os.path.join(src_dir, image_id + image_ext)
+
+    # --- Load WSI info (OpenSlide or TiffFile) ---
+    if not use_tiff:
+        reader = OpenSlide(image_file)
+        info_dict = convert_openslide_to_dict(reader)
+        dimension_index, downsampling_factor = dimensions_index(info_dict)
+        base_dim = info_dict['slide_dimensions'][::-1]  # H, W
+    else:
+        with tf.TiffFile(image_file) as slide:
+            try:
+                base_dim = slide.series[0].levels[0].shape
+                base_dim = train_utils.channel_last(base_dim)
+            except:
+                image = tf.imread(image_file)
+                base_dim = train_utils.channel_last(image.shape)
+        info_dict = {}
+
+    # --- Read tissue annotations (no polygons needed) ---
+    annotation_file = os.path.join(annos_dir, image_id + ".json")
+    pred_annotation_file = os.path.join(annos_dir, "pred_" + image_id + ".json")
+    if os.path.exists(annotation_file):
+        anno_helper = train_utils.AnnoUtil(annotation_file)
+        image_annotations = anno_helper.image_annotations
+    elif os.path.exists(pred_annotation_file):
+        anno_helper = train_utils.AnnoUtil(pred_annotation_file)
+        image_annotations = anno_helper.image_annotations
+    else:
+        print(f"Could not find annotations for {image_id}")
+        return
+
+    # Possibly unify QuPath dict vs list
+    if isinstance(image_annotations, dict):
+        image_annotations = [image_annotations]
+
+    # Collect all tissue bounding boxes
+    tissue_boxes = []
+    for ann in image_annotations:
+        box_name = anno_helper.get_box_name(ann)
+        if not box_name:
+            continue
+        if any(t.lower() in box_name.lower() for t in valid_tissues):
+            bbox_coords = anno_helper.find_bbox_coordinates(ann)
+            tissue_boxes.append(bbox_coords)
+
+    # If no tissues found, you can skip or handle differently
+    if not tissue_boxes:
+        print(f"No tissues found for {image_id}")
+        return
+
+    # --- Read the entire WSI at a suitable pyramid level that doesn't exceed max_dim ---
+    # (Essentially pick the level where H or W is just under max_dim.)
+    if not use_tiff:
+        # Using OpenSlide
+        # You can replicate the logic you have to find the level that ensures
+        # (downsampled_H <= max_dim) and (downsampled_W <= max_dim)
+        # then read_region(...) at that level
+        target_level = pick_level_that_fits(info_dict, max_dim)
+        region_size = info_dict['level_dimensions'][target_level]
+        full_wsi_image = reader.read_region(
+            location=(0, 0), 
+            level=target_level, 
+            size=region_size
+        ).convert('RGB')
+        full_wsi_image = np.array(full_wsi_image)
+        levelH, levelW = full_wsi_image.shape
+    else:
+        # Using TiffFile
+        with tf.TiffFile(image_file) as slide:
+            pyramid_reader = slide.series[0].levels  # or slide.pages if single-level
+            target_level = pick_level_that_fits_tiff(pyramid_reader, base_dim, max_dim)
+            full_wsi_image = pyramid_reader[target_level].asarray()
+            full_wsi_image = train_utils.channel_last(full_wsi_image)
+            levelH, levelW, _ = full_wsi_image.shape
+
+    # If even the chosen level is still bigger than max_dim, do an extra resizing
+    if full_wsi_image.shape[0] > max_dim or full_wsi_image.shape[1] > max_dim:
+        scale_factor = max(
+            full_wsi_image.shape[0] / max_dim, 
+            full_wsi_image.shape[1] / max_dim
+        )
+        new_h = int(full_wsi_image.shape[0] / scale_factor)
+        new_w = int(full_wsi_image.shape[1] / scale_factor)
+        full_wsi_image = train_utils.resize_image(full_wsi_image, max_dim)
+    else:
+        scale_factor = 1.0
+
+    # 1) Scale factor from base level 0 to target_level
+    level_scale_factor = get_level_scale_factor(info_dict, target_level)
+
+    # 2) Suppose we also had to resize that target level to fit in max_dim
+    #    If we ended up with final_wsi_image of shape (newH, newW),
+    #    but the pyramid level had shape (levelH, levelW), we can do:
+    resize_scale_factor_h = full_wsi_image.shape[0] / levelH
+    resize_scale_factor_w = full_wsi_image.shape[1] / levelW
+    # Typically choose one or average them if they differ
+    resize_scale_factor = (resize_scale_factor_h + resize_scale_factor_w) / 2.0
+    ###### i can also use newh and neww
+    composite_scale_factor = level_scale_factor * resize_scale_factor
+    # Now create a single JSON annotation with bounding boxes for each tissue:
+    # 1. We scale the bounding boxes by the same factor used to get full_wsi_image.
+    # 2. Then store them in one dictionary.
+    scaled_tissue_annos = []
+    for box in tissue_boxes:
+        for k, coords in box.items():
+            x1, y1, x2, y2 = coords
+            
+            # Scale from base-level coordinates to final displayed coordinates:
+            final_x1 = int(x1 * composite_scale_factor)
+            final_y1 = int(y1 * composite_scale_factor)
+            final_x2 = int(x2 * composite_scale_factor)
+            final_y2 = int(y2 * composite_scale_factor)
+
+            # Build annotation:
+            scaled_tissue_annos.append({
+                "category_id": 0,   # or anything appropriate ig
+                "bbox": [final_x1, final_y1, final_x2, final_y2],
+                "bbox_mode": 0,})
+
+    # Construct the single final annotation dictionary
+    tissue_finder_annotation = {
+        "file_name": f"{image_id}.npy",
+        "image_id": image_id,
+        "original_width": base_dim[1],
+        "original_height": base_dim[0],
+        "width": full_wsi_image.shape[1],
+        "height": full_wsi_image.shape[0],
+        "tissues": scaled_tissue_annos,
+        "labeled": str(is_human_labeled)
+    }
+
+    # --- Save outputs ---
+    np.save(os.path.join(out_dir, f"{image_id}.npy"), full_wsi_image)
+    with open(os.path.join(out_dir, 'tissue_annotations', f"{image_id}.json"), 'w') as f:
+        json.dump(tissue_finder_annotation, f, indent=4, cls=NpEncoder)
 
 
 # Define main function to get the inputs and run the function
@@ -629,6 +843,16 @@ if __name__ == '__main__':
         default='../configs/class_conversions/tissues.json',
         help='Path to a JSON file containing valid tissue types. Default is '
             '../configs/class_conversions/tissues.json.'
+    )
+
+    # issue 2
+    parser.add_argument(
+        '--mode',
+        type=str,
+        default='lesion_finder',
+        choices=['lesion_finder', 'tissue_finder'],
+        help='Mode to run the script: "lesion_finder" for the original cropping approach, '
+            '"tissue_finder" for a single WSI image with tissue boxes.'
     )
 
     parser.add_argument(
@@ -679,17 +903,23 @@ if __name__ == '__main__':
         if not valid_tissues:
             print("WARNING: 'valid_tissues' list is empty. No tissue boxes will be processed.")
 
+    mode = args.mode
+
     label = args.label.lower()
     
     use_tiff = False # temp thing i added. TODO: make this more solid
 
     # Run the lesion_finder_gt function 
     for image_path in glob.glob(os.path.join(src_dir, '*.svs')): # tif or svs #TODO
-        # try:
+        if mode == 'lesion_finder':
             lesion_finder_gt(src_dir, out_dir, image_path, 2560, annos_dir, use_tiff, is_human_labeled, valid_tissues=valid_tissues, label=label)
-        # except:
-        #     print(f"Could not process {image_path}")
+        elif mode == 'tissue_finder':
+            tissue_finder_gt(src_dir, out_dir, image_path, max_dim=2560, annos_dir=annos_dir, use_tiff=use_tiff, is_human_labeled=is_human_labeled, valid_tissues=valid_tissues
+        )
+        else:
+            print(f"Unknown mode: {mode}")
         
-    ## TODO: Support image formats other than .svs
     
     print("Finished processing all images")
+    
+    
