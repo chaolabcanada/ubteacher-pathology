@@ -105,7 +105,7 @@ class DatasetHelper:
                     tissue_dataset.append(entry)
             else:
                 if not file.name.startswith('.') and file.name.endswith(self.compatible_formats):
-                    corr_json = os.path.join(json_dir, f"pred_{file.name.split('.')[0]}.json")
+                    corr_json = os.path.join(json_dir, f"pred_{file.name.split('.')[0]}.json") #TODO: is it always pred_ ??
                     if not os.path.exists(corr_json):
                         print(f"Skipping {file.name} as corresponding json file does not exist.")
                         continue
@@ -622,7 +622,7 @@ if __name__ == "__main__":
             ens_model = EnsembleTSModel(teacher_model, student_model)
             checkpointer = DetectionCheckpointer(ens_model)
             checkpointer.load(cfg.MODEL.WEIGHTS)
-            model = ens_model.modelTeacher ## tbd
+            model = ens_model.modelStudent ## tbd
             model.eval()
         else: # For detectron2 models
             model = DefaultTrainer.build_model(cfg)

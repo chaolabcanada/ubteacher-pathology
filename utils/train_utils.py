@@ -15,18 +15,83 @@ import glob
 
 import torch #TODO: only import whats required if at all
 from detectron2.data.catalog import DatasetCatalog, MetadataCatalog
+from torch.optim.lr_scheduler import _LRScheduler
 from detectron2.data import transforms as T
 from detectron2.data import detection_utils as utils  #TODO: remove this potentially
 
 
 ## NEW for 2024-11
 
+
+
+class CustomRepeatScheduler(_LRScheduler):
+    def __init__(self, optimizer, burn_up_step, total_iters, last_epoch=-1):
+        self.burn_up_step = burn_up_step
+        self.total_iters = total_iters
+        super(CustomRepeatScheduler, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        # Calculate portions for all cycles
+        warmup_portion = 0.2  # 20% for warmup
+        plateau_portion = 0.3  # 30% for plateau
+        
+        def step_decay(progress):
+            # Drop by 10% for every 10% of progress
+            step = int(progress * 10)  # 0 to 10 steps
+            return max(1.0 - (step * 0.1), 0.0)  # Ensure we don't go below 0
+
+        # Determine which cycle we're in and get cycle parameters
+        if self.last_epoch < self.burn_up_step:
+            cycle_length = self.burn_up_step
+            cycle_iter = self.last_epoch
+        else:
+            cycle_length = self.total_iters - self.burn_up_step
+            cycle_iter = (self.last_epoch - self.burn_up_step) % cycle_length
+
+        # Calculate phase boundaries
+        warmup_steps = cycle_length * warmup_portion
+        plateau_steps = cycle_length * plateau_portion
+        
+        # Apply the appropriate phase of the cycle
+        if cycle_iter < warmup_steps:
+            # Warmup phase
+            return [base_lr * (cycle_iter + 1) / warmup_steps for base_lr in self.base_lrs]
+        elif cycle_iter < (warmup_steps + plateau_steps):
+            # Plateau phase
+            return [base_lr for base_lr in self.base_lrs]
+        else:
+            # Decay phase
+            decay_iter = cycle_iter - (warmup_steps + plateau_steps)
+            decay_length = cycle_length - (warmup_steps + plateau_steps)
+            progress = decay_iter / decay_length
+            decay_factor = step_decay(progress)
+            return [base_lr * decay_factor for base_lr in self.base_lrs]
+
+    def sanity_check(self):
+        # sample some input numbers to check functionality
+        lrs = []
+        self.burn_up_step = 100000
+        self.total_iters = 300000
+        epochs = 300000
+        for epoch in range(epochs):
+            lr = self.get_lr()
+            self.last_epoch = epoch
+            lrs.append(lr)
+        fig, ax = plt.subplots()
+        ax.plot(range(epochs), lrs)
+        plt.show()
+        plt.savefig('lr_schedule.png')
+        plt.close()
+        print("Sanity check complete")
+        return
+
 class Registration:
-    def __init__(self, data_dir, is_unlabeled, train_fraction, cat_map):
+    def __init__(self, data_dir, is_unlabeled, train_fraction, cat_map, out_dir):
         self.is_unlabeled = is_unlabeled
         self.data_dir = data_dir
         self.train_fraction = train_fraction
         self.cat_map = cat_map
+        self.out_dir = out_dir
         
         # set expected train_labeled, train_unlabeled, val naming convention
         self.dset_types = ['train_labeled', 'train_unlabeled', 'val']
@@ -71,6 +136,7 @@ class Registration:
                         if anno['labeled'] == 'True':
                             labeled_annos.append(anno)
                         else:
+                            anno['annotations'] = []
                             unlabeled_annos.append(anno)
                  
         # train test split the labeled_annos
@@ -81,7 +147,7 @@ class Registration:
         
         return [train_annos, unlabeled_annos, val_annos]
     
-    def register_all(self, dataset_dicts: dict):
+    def register_dataset(self, dset_type: str, dataset_dicts: Dict):
         """Helper function to register a new dataset to detectron2's
         Datasetcatalog and Metadatacatalog.
 
@@ -89,21 +155,24 @@ class Registration:
         dataset_dicts -- list of dicts in detectron2 dataset format
         cat_map -- dictionary to map categories to ids, e.g. {'ROI':0, 'JUNK':1}
         """
+        reg_name = dset_type
         
-        for dset_type, dset_dicts in zip(self.dset_types, dataset_dicts):
+        # Register dataset to DatasetCatalog
+        print(f"working on '{reg_name}'...")
         
-            # Register dataset to DatasetCatalog
-            print(f"working on '{dset_type}'...")
+        DatasetCatalog.register(
+            reg_name,
+            lambda d=dset_type: dataset_dicts
+        )
+        # Register metadata to MetadataCatalog
+        MetadataCatalog.get(reg_name).set(
+            thing_classes=sorted([k for k in self.cat_map.keys()]),
+        )
         
-            DatasetCatalog.register(
-                dset_type,
-                lambda d=dset_type: dset_dicts
-            )
-            # Register metadata to MetadataCatalog
-            MetadataCatalog.get(dset_type).set(
-                thing_classes=sorted([k for k in self.cat_map.keys()]),
-            )
-        return
+        # Save dataset_dicts to disk in out dir
+        with open(os.path.join(self.out_dir, f"{reg_name}.json"), 'w') as f:
+            json.dump(dataset_dicts, f)
+        return MetadataCatalog
 
 ### Section 1: Data Processing and Loading ###
 

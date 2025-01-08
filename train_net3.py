@@ -5,7 +5,12 @@ from ubteacher.modeling import EnsembleTSModel
 from detectron2.config import get_cfg
 from detectron2.engine import default_argument_parser, default_setup, launch
 import os
-from utils.train_utils import Registration
+from utils.train_utils import Registration, CustomRepeatScheduler
+
+class CustomUBRCNNTeacherTrainer(UBRCNNTeacherTrainer):
+    def build_lr_scheduler(self, cfg, optimizer):
+        # Return your custom scheduler instead
+        return CustomRepeatScheduler(optimizer, cfg.SEMISUPNET.BURN_UP_STEP, cfg.SOLVER.MAX_ITER)
 
 def setup(args):
     """
@@ -28,26 +33,46 @@ def main(args):
     is_unlabeled = cfg.DATASETS.CROSS_DATASET
     train_fraction = cfg.TRAIN_FRACTION
     cat_map = cfg.CAT_MAP
-    
+
     if cfg.REGISTER:    
         reg = Registration(data_dir, is_unlabeled, train_fraction, cat_map, out_dir)
-        dataset_dicts = reg.accumulate_annos()
-        reg.register_all(dataset_dicts)
-    
+        label, unlabel, val = reg.accumulate_annos()
+        reg.register_dataset("train_labeled", label)
+        reg.register_dataset("train_unlabeled", unlabel)
+        reg.register_dataset("val", val)
+        
+
     # TODO: support loading from existing dataset_dicts
     
     # train
     print("Starting training...")
     if cfg.SEMISUPNET.Trainer == "ubteacher_rcnn":
-        Trainer = UBRCNNTeacherTrainer
+        Trainer = CustomUBRCNNTeacherTrainer
     else:
         Trainer = BaselineTrainer #Combined from ubteacher v1
         
     trainer = Trainer(cfg)
     trainer.resume_or_load(resume=args.resume)
+    
+    # Get the optimizer from the trainer
+    optimizer = trainer.optimizer
+    
+    # Create the custom scheduler
+    burn_up_step = cfg.SEMISUPNET.BURN_UP_STEP  # Read from your config file
+    total_iters = cfg.SOLVER.MAX_ITER
+    scheduler = CustomRepeatScheduler(optimizer, burn_up_step, total_iters)
+
+    # sanity check the scheduler
+    if cfg.DEBUG:
+        scheduler.sanity_check()
+    
+    # Add the scheduler to the trainer
+    trainer.scheduler = scheduler
+    
     return trainer.train()
 
 if __name__ == "__main__":
+    
     args = default_argument_parser().parse_args()
 
     print("Command Line Args:", args)
