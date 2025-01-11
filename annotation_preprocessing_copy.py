@@ -565,8 +565,7 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                     "annotations": annotation_dicts,
                     "labeled": str(is_human_labeled)
                 }
-                print(tissue_anno_dict)
-                raise Exception
+                #print(tissue_anno_dict) 
             tissue_anno_dict = {
                 "file_name": f"{image_file.split('.')[0]}_{n}.npy",
                 "image_id": f"{image_id}_{n}",
@@ -677,7 +676,7 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
         
         with open(class_conversion_file) as f:
             class_conv = json.load(f)
-        process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, base_dim, out_dir, use_tiff, info_dict, is_human_labeled)
+        process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, base_dim, out_dir, use_tiff, info_dict, is_human_labeled, v3_annos = True)
     else:
         process_unlabeled(image_file, annos, max_dim, out_dir, base_dim, info_dict, is_human_labeled)
     return print(f"Finished processing {image_id}")
@@ -894,10 +893,18 @@ if __name__ == '__main__':
         default='',
         help='Path to a cat_map JSON for category mapping. If empty, defaults are used.'
     )
+    
+    parser.add_argument(
+        '--v3_annos',
+        type=bool,
+        default=False,
+        help='Boolean to indicate if ROI detection 3 compatible annos output'
+    )
     # Parse the arguments
     args = parser.parse_args()
     src_dir = args.src_dir
     out_dir = args.out_dir
+    v3_annos = args.v3_annos
     if args.qupath_annos != None:
         annos_dir = args.qupath_annos
     else:
@@ -908,7 +915,6 @@ if __name__ == '__main__':
     is_human_labeled = False
     if 'qupath_annotations_latest' in annos_dir:
         is_human_labeled = True
-
     # below part is for the json # 1B
     if not os.path.exists(args.tissue_json):
         print(f"WARNING: Tissue JSON not found at {args.tissue_json}. Using fallback list.")
