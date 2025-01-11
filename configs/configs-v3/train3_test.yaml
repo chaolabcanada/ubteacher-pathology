@@ -11,8 +11,8 @@ MODEL:
     LOSS: "FocalLoss_BoundaryVar"
     NUM_CLASSES: 2
 SOLVER:
-  IMG_PER_BATCH_LABEL: 4
-  IMG_PER_BATCH_UNLABEL: 4
+  IMG_PER_BATCH_LABEL: 2
+  IMG_PER_BATCH_UNLABEL: 2
   BASE_LR: 0.01
   STEPS: (1000,)
   MAX_ITER: 1000
@@ -21,16 +21,16 @@ SOLVER:
 DATALOADER:
   SUP_PERCENT: 100.0
 DATASETS:
-  CROSS_DATASET: False
+  CROSS_DATASET: True
   TRAIN_LABEL: ("train_labeled",)
   TRAIN_UNLABEL: ("train_unlabeled",)
   TEST: ("val",)
 SEMISUPNET:
   Trainer: "ubteacher_rcnn"
-  BURN_UP_STEP: 1000
+  BURN_UP_STEP: 500
   ANALYSIS_PRINT_FRE: 100
 TEST:
-  EVAL_PERIOD: 100
+  EVAL_PERIOD: 1000
   EVALUATOR: "COCOeval"
   VAL_LOSS: False
 INPUT:
@@ -38,7 +38,10 @@ INPUT:
   MAX_SIZE_TRAIN: 2560
   MIN_SIZE_TRAIN_SAMPLING: "choice"
 ## To change
-DATA_DIR: /mnt/voyage/ubteacher_io/training_data/
+DATA_DIR: /mnt/RSX/ubteacher_io/training_data/
 FMT: .svs, .tif
 TRAIN_FRACTION: 0.8
 CLASS_CONVERTER: None
+CAT_MAP: {"0": "neoplastic"}
+NUMPY: True
+DEBUG: False

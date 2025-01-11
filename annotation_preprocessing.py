@@ -8,6 +8,7 @@ import numpy as np
 import tifffile as tf
 import matplotlib
 import matplotlib.pyplot as plt
+matplotlib.use('Agg')
 from matplotlib import patches
 from detectron2.data import transforms as T
 from utils.train_utils import AnnoUtil, TrainUtil, channel_last, scale_bboxes, resize_image
@@ -338,7 +339,6 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, label='ne
     for i in image_annotations:
         # Get box name, check if valid box
         box_name = anno_helper.get_box_name(i)
-        print(box_name)
         if box_name:
             if "prostate" in box_name or "tissuefinder" in box_name: # TODO: Add this as an input
                 # Get box dict
@@ -419,7 +419,7 @@ if __name__ == '__main__':
     label = args.label.lower()
     
     # Run the lesion_finder_gt function 
-    for image_path in glob.glob(os.path.join(src_dir, '*.tif')): # tif or svs #TODO
+    for image_path in glob.glob(os.path.join(src_dir, '*.svs')): # tif or svs #TODO
         try:
             lesion_finder_gt(src_dir, out_dir, image_path, 2560, annos_dir, label)
         except:
