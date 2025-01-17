@@ -367,7 +367,7 @@ def process_unlabeled(image_file, annos, max_dim, out_dir, base_dim, info_dict, 
     return
         
     
-def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, base_dim, out_dir, use_tiff, info_dict, is_human_labeled, cat_map=None):
+def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, base_dim, out_dir, use_tiff, info_dict, is_human_labeled, cat_map=None, v3_annos=False):
     # TODO: BELOW THING IS UNUSED, INVESTIGATE WHERE AND HOW TO USE THIS
     # # If cat_map is provided, load it. Otherwise, fallback. 
     # if cat_map and os.path.exists(cat_map):
@@ -538,17 +538,35 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                     continue   
                 '''               
                 poly_bbox = get_bbox(poly)
-                each_anno = {
-                    "category_id" : 0, # TODO: Change this based on above 216-225
-                    "bbox" : poly_bbox,
-                    "bbox_mode" : 0,
-                   # "segmentation" : [poly]
-                }
+                if v3_annos:
+                    each_anno = {
+                        "label" : polygon_names[c],
+                        "bounding_box": poly_bbox,
+                    }
+                else:
+                    each_anno = {
+                        "category_id" : 0, # TODO: Change this based on above 216-225
+                        "bbox" : poly_bbox,
+                        "bbox_mode" : 0,
+                    # "segmentation" : [poly]
+                    }
                 annotation_dicts.append(each_anno) 
             
             # At the end of this: we want to save a "cat_map" -> json file which maps the class names to the class numbers
             # {0: "non-neoplastic", 1: "neoplastic", 2: "ignore"}  
-                
+            if v3_annos:
+                tissue_anno_dict = {
+                    "file_path": f"{image_id}.npy",
+                    "image_id": image_id,
+                    "original_width": base_dim[1],
+                    "original_height": base_dim[0],
+                    "width": recropped_tissue.shape[1],
+                    "height": recropped_tissue.shape[0],
+                    "annotations": annotation_dicts,
+                    "labeled": str(is_human_labeled)
+                }
+                print(tissue_anno_dict)
+                raise Exception
             tissue_anno_dict = {
                 "file_name": f"{image_file.split('.')[0]}_{n}.npy",
                 "image_id": f"{image_id}_{n}",
@@ -793,7 +811,7 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
                 "bbox": [final_x1, final_y1, final_x2, final_y2],
                 "bbox_mode": 0,})
 
-    # Construct the single final annotation dictionary
+    # Construct the single final annotation dictionar
     tissue_finder_annotation = {
         "file_name": f"{image_id}.npy",
         "image_id": image_id,
@@ -839,10 +857,10 @@ if __name__ == '__main__':
     # 1B: add new argument for tissue types JSON
     parser.add_argument(
         '--tissue_json',
-        type=str,
-        default='../configs/class_conversions/tissues.json',
+        type=str, 
+        default='configs/class_conversions/tissues.json',
         help='Path to a JSON file containing valid tissue types. Default is '
-            '../configs/class_conversions/tissues.json.'
+            'configs/class_conversions/tissues.json.'
     )
 
     # issue 2
