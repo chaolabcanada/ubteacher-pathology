@@ -419,7 +419,7 @@ if __name__ == '__main__':
     label = args.label.lower()
     
     # Run the lesion_finder_gt function 
-    for image_path in glob.glob(os.path.join(src_dir, '*.tif')): # tif or svs #TODO
+    for image_path in glob.glob(os.path.join(src_dir, '*.svs')): # tif or svs #TODO
         try:
             lesion_finder_gt(src_dir, out_dir, image_path, 2560, annos_dir, label)
         except:
