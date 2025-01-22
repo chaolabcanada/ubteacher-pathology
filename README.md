@@ -37,6 +37,24 @@ The IEEE / CVF Computer Vision and Pattern Recognition Conference (CVPR), 2022 <
 - Overfitting prevention
 - Better visualizer during eval.
 
+## Annotation Preprocessing
+### Overview
+This script is designed to create ground truths for training a machine learning model for unbiased teacher applications in pathology image analysis. It processes both labeled and unlabeled data, ensuring every image receives appropriate annotations. The script handles various image formats, annotations, and allows for customization through command-line arguments.
+### Features
+- Processes whole-slide images (WSIs) in .tif or .svs formats.
+- Extracts tissue regions and corresponding annotations from images.
+- Converts annotations into condensed manageable classes (e.g., neoplastic, non-neoplastic, ignore).
+- Automatically detects annotation folders.
+- Includes support for tissue masking and scaling bounding boxes.
+- Visualizes and saves cropped tissue regions.
+- Provides options for lesion or tissue-based processing.
+### Required Arguments
+- `src_dir`: Directory containing the input images.
+- `out_dir`: Directory to save the processed outputs.
+### Optional Arguments
+- `--qupath_annos`: Path to the directory containing QuPath annotations. If not provided, the script attempts auto-detection.
+- `--tissue_json`: Path to a JSON file defining valid tissue types Default: `configs/class_conversions/tissues.json`.
+
 ## Usage
 
 ### Required Config Parameters
