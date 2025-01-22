@@ -48,12 +48,98 @@ This script is designed to create ground truths for training a machine learning 
 - Includes support for tissue masking and scaling bounding boxes.
 - Visualizes and saves cropped tissue regions.
 - Provides options for lesion or tissue-based processing.
+### Installation
+#### Dependencies
+Ensure the following Pyhton libraries are installed:
+- `numpy`
+- `tifffile`
+- `matplotlib`
+- `detectron2`
+- `openslide-python`
+- `Pillow`
+
+Install dependencies using pip:
+```
+pip install numpy tifffile matplotlib detectron2 openslide-python pillow
+```
+### Usage
+Run the script using the following syntax:
+```aiignore
+python annotation_preprocessing.py <src_dir> <out_dir> [--qupath_annos <path>] [--tissue_json <path>] [--mode <lesion_finder|tissue_finder>] [--label <label>] [--tissue_mask <True|False>] [--cat_map <path>]
+```
+#### Command-Line Arguments
+Below is a detailed structure of command-line arguments defined in the script:
+```aiignore
+parser = argparse.ArgumentParser(description='Get the input arguments')
+parser.add_argument(
+    'src_dir', 
+    type=str, 
+    help='The source directory containing the images'
+)
+parser.add_argument(
+    'out_dir', 
+    type=str, 
+    help='The output directory to save the processed images'
+)
+parser.add_argument(
+    '--qupath_annos',
+    type=str,
+    default=None,
+    help='(Optional) The directory containing the QuPath annotations. '
+         'If not provided, auto-detection will be used.'
+)
+parser.add_argument(
+    '--tissue_json',
+    type=str, 
+    default='configs/class_conversions/tissues.json',
+    help='Path to a JSON file containing valid tissue types. Default is '
+         'configs/class_conversions/tissues.json.'
+)
+parser.add_argument(
+    '--mode',
+    type=str,
+    default='lesion_finder',
+    choices=['lesion_finder', 'tissue_finder'],
+    help='Mode to run the script: "lesion_finder" for the original cropping approach, '
+         '"tissue_finder" for a single WSI image with tissue boxes.'
+)
+parser.add_argument(
+    '--label',
+    type=str,
+    default='neoplastic',
+    help='The label to use for the annotations, default is neoplastic'
+)
+parser.add_argument(
+    '--tissue_mask',
+    type=bool,
+    default=False,
+    help='Boolean to indicate if tissue masking is needed'
+)
+parser.add_argument(
+    '--cat_map',
+    type=str,
+    default='',
+    help='Path to a cat_map JSON for category mapping. If empty, defaults are used.'
+)
+args = parser.parse_args()
+```
 ### Required Arguments
 - `src_dir`: Directory containing the input images.
 - `out_dir`: Directory to save the processed outputs.
 ### Optional Arguments
 - `--qupath_annos`: Path to the directory containing QuPath annotations. If not provided, the script attempts auto-detection.
 - `--tissue_json`: Path to a JSON file defining valid tissue types Default: `configs/class_conversions/tissues.json`.
+- `--mode`: Processing mode: `lesion_finder` (default) or `tissue_finder`
+- `--label`: Lable to filter annotations. Default: `neoplastic`.
+- `--tissue_mask`: Boolean indicating if tissue masking is needed.
+#### Example
+`python annotation_preprocessing.py /path/to/images /path/to/output --qupath_annos /path/to/annotations --mode lesion_finder --label neoplastic`
+### Output
+The script generates the following outputs in the specified `out_dir`:
+- Cropped tissue regions saves as `.npy` files.
+- Annotations saved as `.json` files under `tissue_annotations/`
+- Visualizations saved as `.png` files under `visualizations`
+
 
 ## Usage
 
@@ -61,7 +147,7 @@ This script is designed to create ground truths for training a machine learning 
 
 - Note: any unspecified config fields will automatically inherit COCO defaults which may cause unintended consequences
 - View output/config.yaml to see the FULL config of a given training run
-The following .yaml block gives descriptions of our implementation-specific params., but NOT every necessary param. is included!
+  The following .yaml block gives descriptions of our implementation-specific params., but NOT every necessary param. is included!
 
 ```yaml
 # UBTeacherV2 Main Branch Config Params.
@@ -130,7 +216,7 @@ if self.isnumpy:
 
 # Otherwise, default detectron2 read_image is used
 ```
-  
-  
-  
+
+
+
 This project is licensed under [MIT License](LICENSE), as found in the LICENSE file.
