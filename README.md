@@ -13,29 +13,111 @@ The IEEE / CVF Computer Vision and Pattern Recognition Conference (CVPR), 2022 <
 <img src="teaser/teaser_utv2.png" width="85%">
 </p>
 
-## What have we changed?
-- A hybrid implementation of features from unbiased-teacher and unbiased-teacher-v2
-- Allows user input at run-time for labeled vs. unlabeled datasets
-- Allows empty annos. in labeled datasets for control purposes
-- QuPath annotation integration (see below)
-- Class merging logic to generalize disease-specific labels (see below)
-- Support for Mask-RCNN training
+## Setup
+1. Create a conda environment with python==3.9
+2. Install all dependencies from requirements.txt -- note that OpenSlide may conflict with other slide reading packages
 
-## Work in progress
-- Fix some images / annos not registering properly
-- Create cfg defaults for parameters which can only be one value (e.g. num_classes)
+## Dataset
+### Directory structure
+Training on multiple datasets is supported, so long as they are nested under the same parent directory. These datasets can be labeled or unlabeled. 
+However, each image requires an annotation file to be provided, even if it is unlabeled (see Annotation format section for more details).
+For each dataset, annotation files should be nested in a subdirectory named "tissue_annotations" at the same level as the images.
+(See Config section for more details). For example,
+```
+<data_dir>/
+    <image_file_1>.npy
+    <image_file_2>.npy
+    ...
+    <'tissue_annotations'>/
+        <image_file_1>.json
+        <image_file_2>.json
+    ...
+```
+### Dataset format
+The image data and annotations are expected to share the same base name.
+Images can be in numpy format ".npy" or in standard PIL-compatible image formats ".jpg", ".png". Annotations must be in json format.
+Since unlabeled proposals are generated as boxes, only box annotations are supported (see Annotation format section for more details).
 
-## To Do
-- Categorical mapping
-- Augmentation rework
-- Create a more descriptive logger to describe training flow
-- Reduce box-in-a-box predictions
+### Annotation format
+The detectron2 standard annotation dictionary format is followed. An additional "labeled" field is added to differentiate labeled vs. unlabeled.
+This field is useful since images with no labels of interest can still be labeled (i.e. the absence of labels does not imply the omission of labels).
+For example,
 
-## Feature wishlist
-- Transparency as to which data are being loaded at a given time
-- Support for more formats / models
-- Overfitting prevention
-- Better visualizer during eval.
+{
+    "file_name": "/path/to/image.npy",
+    "width": x,
+    "height": y,
+    "labeled": "z"
+    "annotations": [
+        {
+            "category_id" : 0,
+            "bbox" : [
+                x1,
+                y1,
+                x2,
+                y2
+            ],
+            "bbox_mode": 0
+        },
+        ...
+    ]
+)
+
+Where x, y are integers and z is True or False and annotations is a list of dicts.
+
+## Training
+### Basic command-line
+
+python train_net3.py \
+--config-file <path_to_config_file>
+
+### Config
+
+Note: any unspecified config fields will automatically inherit COCO defaults which may cause unintended consequences
+View output/config.yaml to see the FULL config of a given training run
+
+The following .yaml block gives descriptions of our implementation-specific params. For more information consult detectron2 config docs.
+
+```yaml
+# UBTeacherV2 Main Branch Config Params.
+_BASE_: "../Base-RCNN-FPN.yaml" # Inherits detectron2 model config. Make sure path is correct.
+MODEL:
+    META_ARCHITECTURE: "TwoStagePseudoLabGeneralizedRCNN" # Altered from original UBTeacherV2 for our purposes
+    WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl" # Supports .pth and .pkl to load pre-training
+    PROPOSAL_GENERATOR:
+        NAME: "PseudoLabRPN" # Unchanged fromm UBTeacherV2
+ROI_HEADS:
+    NAME: "StandardROIHeadsPseudoLab" # To match META_ARCHITECTURE
+    LOSS: "FocalLoss_BoundaryVar" # Focal loss is key for "unbiased" classifications
+    NUM_CLASSES: 4 # N + 1 classes, originally 80 for COCO training
+SOLVER:
+    IMG_PER_BATCH_LABEL: 10 # Must be non-zero always
+    IMG_PER_BATCH_UNLABEL: 10 # Must be non-zero if using semi-supervised
+    BASE_LR: 0.01
+    MAX_ITER: 10000
+DATALOADER:
+  SUP_PERCENT: 100.0 # For most applications, we do not wish to withhold labels
+  FILTER_EMPTY_ANNOTATIONS: False # Lack of anno. doesn't necessarily mean unlabeled in our use-case.
+DATASETS:
+  CROSS_DATASET: True # Semi-supervision
+  TRAIN_LABEL: ("train_labeled",) # train_net3 uses this naming convention. 
+  TRAIN_UNLABEL: ("train_unlabeled",) # see above
+  TEST: ("val",) # see above
+SEMISUPNET:
+  Trainer: "ubteacher_rcnn" # only RCNN is supported for semi-supervised currently
+
+# Note: If cfg.SEMISUPNET.Trainer is not "ubteacher_rcnn", the ubteacher v1 BaselineTrainer will be used.
+# This does not support semi-supervision and requires cfg.DATASETS.CROSS_DATASET as "False". 
+
+# New Params. - These ALL require specification!
+NUMPY: True # Determines whether .npy or .jpg/.png is expected to control image loader
+IMG_DIR: /mnt/d/labeled_images # Path to parent directory as described in README
+TRAIN_FRACTION: 0.8 # Allocates a certain percentage for train-time validation
+REGISTER: True # Choose your own dataset or use a COCO default in TRAIN_LABEL/UNLABEL/TEST
+CLASS_CONVERTER: /mnt/d/class_conversions/neoplastic.json # Path to a json with a dict. See class section below
+CAT_MAP: {"0" : "class_0", "1" : "class_1", ...} # See class section below
+DEBUG: False # If True, floods a folder with sample training images at train time - Use with caution!!!
+```
 
 ## Annotation Preprocessing
 ### Overview
@@ -140,55 +222,6 @@ The script generates the following outputs in the specified `out_dir`:
 - Annotations saved as `.json` files under `tissue_annotations/`
 - Visualizations saved as `.png` files under `visualizations`
 
-
-## Usage
-
-### Required Config Parameters
-
-- Note: any unspecified config fields will automatically inherit COCO defaults which may cause unintended consequences
-- View output/config.yaml to see the FULL config of a given training run
-  The following .yaml block gives descriptions of our implementation-specific params., but NOT every necessary param. is included!
-
-```yaml
-# UBTeacherV2 Main Branch Config Params.
-_BASE_: "../Base-RCNN-FPN.yaml" # Inherits detectron2 model config. Make sure path is correct.
-MODEL:
-  META_ARCHITECTURE: "TwoStagePseudoLabGeneralizedRCNN" # Altered from original UBTeacherV2 to support Mask-RCNN
-  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl" # Supports .pth and .pkl to load pre-training
-MASK_ON: True # If true, mask_head is in roi_heads
-PROPOSAL_GENERATOR:
-  NAME: "PseudoLabRPN" # Unchanged fromm UBTeacherV2
-ROI_HEADS:
-  NAME: "StandardROIHeadsPseudoLab" # Now with Mask-RCNN
-  LOSS: "FocalLoss_BoundaryVar" # Focal loss is key for "unbiased" classifications
-  NUM_CLASSES: 4 # N + 1 classes, originally 80 for COCO training
-SOLVER:
-  IMG_PER_BATCH_UNLABEL: 10 # Keep this non-zero to avoid unintended behavior
-DATALOADER:
-  SUP_PERCENT: 100.0 # We want to use all labeled data available unlike COCO demo
-  FILTER_EMPTY_ANNOTATIONS: # Lack of anno. doesn't necessarily mean unlabeled in our use-case.
-DATASETS:
-  CROSS_DATASET: True # Semi-supervision
-  TRAIN_LABEL: ("train_labeled",) # train_net2.py registers with these names, feel free to change
-  TRAIN_UNLABEL: ("train_unlabeled",) # see above
-  TEST: ("val",) # see above
-SEMISUPNET:
-  Trainer: "ubteacher_rcnn" # only RCNN is supported for semi-supervised currently
-
-# New Params. - These ALL require specification!
-NUMPY: True # Determines whether .npy or .jpg/.png is expected to control image loader
-UNLABELED_DIR: /mnt/d/unlabeled_images # Only required when cross_dataset is true, path to unlabeled images
-IMG_DIR: /mnt/d/labeled_images # Path to labeled images
-ANNO_DIR: /mnt/d/QuPath_annos # Path to anno. directories - Currently anno subdirs must match names with their corresponding img subdirs.
-FMT: .svs, .tif, .tiff # WSI reader to get dimensions of originals to rescale annos during training
-TRAIN_FRACTION: 0.8 # We disliked the train/test split logic so we redid it
-SET_SEED: True # Determines whether a seed is output
-DATASEED: /mnt/d/dataseed/model.json # Specifies the path for the dataseed to be written
-REGISTER: True # Choose your own dataset or use a COCO default in TRAIN_LABEL/UNLABEL/TEST
-DEBUG: False # Floods a folder with sample training images at train time - Use with caution!!!
-BOX_ONLY: False # Only load box annotations and not polygons
-CLASS_CONVERTER: /mnt/d/class_conversions/neoplastic.json # Path to a json with a dict. (see below)
-```
 
 ### Using the Class Converter
 
