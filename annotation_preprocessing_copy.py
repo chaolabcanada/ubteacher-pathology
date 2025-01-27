@@ -17,7 +17,9 @@ import utils.train_utils_copy as train_utils
 #extra stuff that i am importing
 from openslide import OpenSlide # type: ignore
 from PIL import Image # type: ignore
-# To run: python annotation_preprocessing_copy.py /mnt/RSX/Datasets_pathology/SRI_OSCC_lymph_labeled /home/adrit/home/unbiased_teacher2/tem --qupath_annos /mnt/RSX/Datasets_pathology/SRI_OSCC_lymph_labeled/qupath_annotations_latest/
+import xml.etree.ElementTree as ET
+import re
+# To run: python annotation_preprocessing_copy.py --src_dir /mnt/RSX/Datasets_pathology/BRACS_AT/ /home/adrit/home/unbiased_teacher2/tem --mode tissue_finder
 
 # Authors: Chao Lab, 2024
 
@@ -239,6 +241,78 @@ def get_level_scale_factor(info_dict: dict, target_level: int) -> float:
     # Typically these should be nearly identical, but let's pick one 
     # or average them if you want
     return (scale_w + scale_h) / 2.0
+
+
+def extract_physical_size_x(xml_string: str) -> float:
+    """
+    Extracts the value of PhysicalSizeX from an OME-XML description string,
+    handling dynamic namespaces robustly.
+    """
+    # Parse the XML string into an ElementTree object
+    root = ET.fromstring(xml_string)
+    
+    # Dynamically detect namespace
+    namespace_match = re.match(r"^\{.*\}", root.tag)
+    namespace = namespace_match.group(0) if namespace_match else ""
+
+    # Find the Pixels element with the dynamic namespace
+    pixels = root.find(f".//{namespace}Pixels")
+    
+    if pixels is not None and "PhysicalSizeX" in pixels.attrib:
+        return float(pixels.attrib["PhysicalSizeX"])
+    else:
+        raise ValueError("PhysicalSizeX not found in the provided XML.")
+
+
+def info_dict_tiff(wsi_path):
+    tiff = tf.TiffFile(wsi_path)
+    with OpenSlide(wsi_path) as slide:
+        info_dict = convert_openslide_to_dict(slide)
+
+    metadata = tiff.pages[0].tags.get('ImageDescription')
+    description = metadata.value
+
+    if info_dict['mpp'][0] == 0.0 or info_dict['mpp'][1] == 0.0:
+        try:
+            physical_size_x_value = extract_physical_size_x(description)
+        except ValueError as e:
+            print(e)
+        info_dict['mpp'] = (physical_size_x_value, physical_size_x_value)
+    # print(description)
+    # break
+
+
+    # Tifffile: Handling scale and thumbnail differently using find_top
+
+    ## BELOW WE FIRST USE OPENSLIDE TO GET MPP VALS
+    # temp_reader = OpenSlide(wsi_path)
+    # info_dict = di_utils.convert_openslide_to_dict(reader)
+
+    # exit
+
+    true_base = tiff.series[0].levels[0]
+    numerator = true_base.shape[1]
+    levels_dimensions = tuple()
+
+    level_downsamples = [] # to get something similar to openslide
+    levels_count = 0 # gives us the number of levels
+    for idx, level in enumerate(tiff.series[0].levels):
+        # print(idx, level.shape)
+        if level.shape[0] == 3:
+            smth = level.shape[::-1]
+        else:
+            smth = level.shape
+        level_downsamples.append(numerator/smth[1])
+        levels_dimensions += ((smth[1], smth[0]),)
+        levels_count += 1
+    # print(level_downsamples) # correct
+    # print(levels_dimensions) # correct
+
+
+    info_dict['level_dimensions'] = levels_dimensions
+    info_dict['level_downsamples'] = level_downsamples
+
+    return info_dict
 
 #################################### ENDS HERE
 
@@ -616,7 +690,8 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
                 # load image
                 image = tf.imread(image_file)
                 base_dim = train_utils.channel_last(image.shape)
-        info_dict = {}
+        info_dict = info_dict_tiff(image_file)
+        # info_dict = {}
 
         print("tiff base_dim", base_dim)
     # Read annotations
@@ -683,7 +758,16 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
     return print(f"Finished processing {image_id}")
 
 
-def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int, annos_dir: str, use_tiff: bool, is_human_labeled: bool, valid_tissues=None):
+def tissue_finder_gt(
+    src_dir: str,
+    out_dir: str,
+    image_path: str,
+    max_dim: int,
+    annos_dir: str,
+    use_tiff: bool,
+    is_human_labeled: bool,
+    valid_tissues=None
+):
     if valid_tissues is None:
         valid_tissues = []
 
@@ -708,7 +792,7 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
             except:
                 image = tf.imread(image_file)
                 base_dim = train_utils.channel_last(image.shape)
-        info_dict = {}
+        info_dict = info_dict_tiff(image_file)
 
     # --- Read tissue annotations (no polygons needed) ---
     annotation_file = os.path.join(annos_dir, image_id + ".json")
@@ -729,6 +813,8 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
 
     # Collect all tissue bounding boxes
     tissue_boxes = []
+    # make this a dict, where the key is the box name and if box name is valid 
+    # (i.e in tissues, now instead of coordinates, we also append the name)
     for ann in image_annotations:
         box_name = anno_helper.get_box_name(ann)
         if not box_name:
@@ -743,12 +829,8 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
         return
 
     # --- Read the entire WSI at a suitable pyramid level that doesn't exceed max_dim ---
-    # (Essentially pick the level where H or W is just under max_dim.)
     if not use_tiff:
         # Using OpenSlide
-        # You can replicate the logic you have to find the level that ensures
-        # (downsampled_H <= max_dim) and (downsampled_W <= max_dim)
-        # then read_region(...) at that level
         target_level = pick_level_that_fits(info_dict, max_dim)
         region_size = info_dict['level_dimensions'][target_level]
         full_wsi_image = reader.read_region(
@@ -757,7 +839,7 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
             size=region_size
         ).convert('RGB')
         full_wsi_image = np.array(full_wsi_image)
-        levelH, levelW = full_wsi_image.shape
+        levelH, levelW, _ = full_wsi_image.shape
     else:
         # Using TiffFile
         with tf.TiffFile(image_file) as slide:
@@ -770,7 +852,7 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
     # If even the chosen level is still bigger than max_dim, do an extra resizing
     if full_wsi_image.shape[0] > max_dim or full_wsi_image.shape[1] > max_dim:
         scale_factor = max(
-            full_wsi_image.shape[0] / max_dim, 
+            full_wsi_image.shape[0] / max_dim,
             full_wsi_image.shape[1] / max_dim
         )
         new_h = int(full_wsi_image.shape[0] / scale_factor)
@@ -782,18 +864,16 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
     # 1) Scale factor from base level 0 to target_level
     level_scale_factor = get_level_scale_factor(info_dict, target_level)
 
-    # 2) Suppose we also had to resize that target level to fit in max_dim
-    #    If we ended up with final_wsi_image of shape (newH, newW),
-    #    but the pyramid level had shape (levelH, levelW), we can do:
+    # 2) Additional resizing scale factor
     resize_scale_factor_h = full_wsi_image.shape[0] / levelH
     resize_scale_factor_w = full_wsi_image.shape[1] / levelW
-    # Typically choose one or average them if they differ
     resize_scale_factor = (resize_scale_factor_h + resize_scale_factor_w) / 2.0
-    ###### i can also use newh and neww
+
+    # 3) Composite scale factor: base-level -> final displayed
     composite_scale_factor = level_scale_factor * resize_scale_factor
-    # Now create a single JSON annotation with bounding boxes for each tissue:
-    # 1. We scale the bounding boxes by the same factor used to get full_wsi_image.
-    # 2. Then store them in one dictionary.
+
+    print(tissue_boxes)
+    # Scale bounding boxes
     scaled_tissue_annos = []
     for box in tissue_boxes:
         for k, coords in box.items():
@@ -807,85 +887,119 @@ def  tissue_finder_gt( src_dir: str, out_dir: str, image_path: str, max_dim: int
 
             # Build annotation:
             scaled_tissue_annos.append({
-                "category_id": 0,   # or anything appropriate ig
-                "bbox": [final_x1, final_y1, final_x2, final_y2],
-                "bbox_mode": 0,})
+                "id": k,
+                "bounding_box": [final_x1, final_y1, final_x2, final_y2],
+                "bbox_mode": 0,
+            })
 
-    # Construct the single final annotation dictionar
+    # Visualization step
+    if not os.path.exists(os.path.join(out_dir, 'visualizations')):
+        os.makedirs(os.path.join(out_dir, 'visualizations'))
+
+    fig, ax = plt.subplots()
+    ax.imshow(full_wsi_image)
+
+    # Draw bounding boxes
+    for anno in scaled_tissue_annos:
+        bb = anno["bounding_box"]  # [x1, y1, x2, y2]
+        rect_w = bb[2] - bb[0]
+        rect_h = bb[3] - bb[1]
+        box_patch = patches.Rectangle(
+            (bb[0], bb[1]),
+            rect_w,
+            rect_h,
+            linewidth=2,
+            edgecolor='red',
+            facecolor='none'
+        )
+        ax.add_patch(box_patch)
+
+    plt.savefig(os.path.join(out_dir, 'visualizations', f'{image_id}.png'))
+    plt.close()
+
+    # Prepare JSON
     tissue_finder_annotation = {
-        "file_name": f"{image_id}.npy",
+        "file_path": f"{image_id}.npy",
         "image_id": image_id,
         "original_width": base_dim[1],
         "original_height": base_dim[0],
         "width": full_wsi_image.shape[1],
         "height": full_wsi_image.shape[0],
-        "tissues": scaled_tissue_annos,
+        "annotations": scaled_tissue_annos,
         "labeled": str(is_human_labeled)
     }
 
-    # --- Save outputs ---
+    # Save outputs
     np.save(os.path.join(out_dir, f"{image_id}.npy"), full_wsi_image)
+    if not os.path.exists(os.path.join(out_dir, 'tissue_annotations')):
+        os.makedirs(os.path.join(out_dir, 'tissue_annotations'))
     with open(os.path.join(out_dir, 'tissue_annotations', f"{image_id}.json"), 'w') as f:
         json.dump(tissue_finder_annotation, f, indent=4, cls=NpEncoder)
+    
+    print(f"[TissueFinder] Finished processing {image_id}")
 
 
-# Define main function to get the inputs and run the function
 if __name__ == '__main__':
-    # Parse the arguments in_dir, out_dir, qupath anno folder, name (default neoplastic)
+    # Parse the arguments
     parser = argparse.ArgumentParser(description='Get the input arguments')
+
     parser.add_argument(
-        'src_dir', 
-        type=str, 
-        help='The source directory containing the images'
+        '--parent_dir',
+        type=str,
+        help='The parent directory containing all subdirectories. If provided, '
+             'the script will iterate over all subdirectories as source directories.'
     )
 
     parser.add_argument(
-        'out_dir', 
-        type=str, 
-        help='The output directory to save the processed images'
+        '--src_dir',
+        type=str,
+        help='The specific source directory containing the images to process. '
+             'Ignored if parent_dir is provided.'
     )
 
-# making the below as optional
+    parser.add_argument(
+        'out_dir',
+        type=str,
+        help='The output directory to save the processed images.'
+    )
+
     parser.add_argument(
         '--qupath_annos',
         type=str,
         default=None,
         help='(Optional) The directory containing the QuPath annotations. '
-         'If not provided, auto-detection will be used.'
+             'If not provided, auto-detection will be used.'
     )
 
-    # 1B: add new argument for tissue types JSON
     parser.add_argument(
         '--tissue_json',
-        type=str, 
+        type=str,
         default='configs/class_conversions/tissues.json',
         help='Path to a JSON file containing valid tissue types. Default is '
-            'configs/class_conversions/tissues.json.'
+             'configs/class_conversions/tissues.json.'
     )
 
-    # issue 2
     parser.add_argument(
         '--mode',
         type=str,
         default='lesion_finder',
         choices=['lesion_finder', 'tissue_finder'],
         help='Mode to run the script: "lesion_finder" for the original cropping approach, '
-            '"tissue_finder" for a single WSI image with tissue boxes.'
+             '"tissue_finder" for a single WSI image with tissue boxes.'
     )
 
     parser.add_argument(
         '--label',
         type=str,
         default='neoplastic',
-        help='The label to use for the annotations, default is neoplastic'
+        help='The label to use for the annotations, default is neoplastic.'
     )
 
-    # add optional argument to support tissue masking
     parser.add_argument(
         '--tissue_mask',
         type=bool,
         default=False,
-        help='Boolean to indicate if tissue masking is needed'
+        help='Boolean to indicate if tissue masking is needed.'
     )
 
     parser.add_argument(
@@ -894,50 +1008,84 @@ if __name__ == '__main__':
         default='',
         help='Path to a cat_map JSON for category mapping. If empty, defaults are used.'
     )
+
     # Parse the arguments
     args = parser.parse_args()
+    parent_dir = args.parent_dir
     src_dir = args.src_dir
     out_dir = args.out_dir
-    if args.qupath_annos != None:
-        annos_dir = args.qupath_annos
-    else:
-        annos_dir = auto_detect_annotation_dir(src_dir)
-        if annos_dir is None: # incase we still dont find anything
-            print("No valid annotation directory was selected. Exiting.")
-            exit()
-    is_human_labeled = False
-    if 'qupath_annotations_latest' in annos_dir:
-        is_human_labeled = True
 
-    # below part is for the json # 1B
+    if not parent_dir and not src_dir:
+        print("Either --parent_dir or --src_dir must be provided. Exiting.")
+        exit()
+
+    # Validate parent_dir or src_dir
+    if parent_dir and not os.path.isdir(parent_dir):
+        print(f"Parent directory {parent_dir} does not exist. Exiting.")
+        exit()
+
+    if src_dir and not os.path.isdir(src_dir):
+        print(f"Source directory {src_dir} does not exist. Exiting.")
+        exit()
+
+    # Load valid tissues from JSON
     if not os.path.exists(args.tissue_json):
         print(f"WARNING: Tissue JSON not found at {args.tissue_json}. Using fallback list.")
         valid_tissues = ["lymph", "tissuefinder"]
     else:
         with open(args.tissue_json, 'r') as f:
             tissue_data = json.load(f)
-        # we assume the key is "valid_tissues"
         valid_tissues = tissue_data.get("valid_tissues", [])
         if not valid_tissues:
             print("WARNING: 'valid_tissues' list is empty. No tissue boxes will be processed.")
 
     mode = args.mode
-
     label = args.label.lower()
-    
-    use_tiff = False # temp thing i added. TODO: make this more solid
+    # use_tiff = True  # TODO: make this solid
+    subdirectories = []
 
-    # Run the lesion_finder_gt function 
-    for image_path in glob.glob(os.path.join(src_dir, '*.svs')): # tif or svs #TODO
-        if mode == 'lesion_finder':
-            lesion_finder_gt(src_dir, out_dir, image_path, 2560, annos_dir, use_tiff, is_human_labeled, valid_tissues=valid_tissues, label=label)
-        elif mode == 'tissue_finder':
-            tissue_finder_gt(src_dir, out_dir, image_path, max_dim=2560, annos_dir=annos_dir, use_tiff=use_tiff, is_human_labeled=is_human_labeled, valid_tissues=valid_tissues
-        )
+    # If parent_dir is provided, find all subdirectories
+    if parent_dir:
+        subdirectories = [os.path.join(parent_dir, d) for d in os.listdir(parent_dir) if os.path.isdir(os.path.join(parent_dir, d))]
+    else:
+        subdirectories = [src_dir]
+
+    # Process each subdirectory
+    for current_src_dir in subdirectories:
+        print(f"Processing directory: {current_src_dir}")
+
+        # Auto-detect the annotation directory for the current src_dir
+        if args.qupath_annos:
+            annos_dir = args.qupath_annos
         else:
-            print(f"Unknown mode: {mode}")
+            annos_dir = auto_detect_annotation_dir(current_src_dir)
+            if not annos_dir:
+                print(f"No valid annotation directory found in {current_src_dir}. Skipping...")
+                continue
+
+        is_human_labeled = 'qupath_annotations_latest' in annos_dir
+
+        # Get all .svs and .tif image files in the current src_dir
+        image_paths = glob.glob(os.path.join(current_src_dir, '*.svs')) + glob.glob(os.path.join(current_src_dir, '*.tif'))
+        if not image_paths:
+            print(f"No .svs or .tif files found in {current_src_dir}. Skipping...")
+            continue
         
-    
-    print("Finished processing all images")
-    
+
+        # Process each image
+        for image_path in image_paths:
+            use_tiff = image_path.endswith('.tif')
+            try:
+                if mode == 'lesion_finder':
+                    lesion_finder_gt(current_src_dir, out_dir, image_path, 2560, annos_dir, use_tiff, is_human_labeled, valid_tissues=valid_tissues, label=label)
+                elif mode == 'tissue_finder':
+                    tissue_finder_gt(current_src_dir, out_dir, image_path, max_dim=2560, annos_dir=annos_dir, use_tiff=use_tiff, is_human_labeled=is_human_labeled, valid_tissues=valid_tissues
+                )
+                else:
+                    print(f"Unknown mode: {mode}")
+            except Exception as e:
+                print(f"Error while processing {image_path}: {e}")
+
+    print("Finished processing all images.")
+
     
