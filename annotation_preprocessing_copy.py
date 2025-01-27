@@ -614,12 +614,12 @@ def process_tissue_polygons(class_conv, image_file, annos, lesions, max_dim, bas
                 poly_bbox = get_bbox(poly)
                 if v3_annos:
                     each_anno = {
-                        "label" : polygon_names[c],
+                        "label" : c,
                         "bounding_box": poly_bbox,
                     }
                 else:
                     each_anno = {
-                        "category_id" : 0, # TODO: Change this based on above 216-225
+                        "label" : c, # TODO: Change this based on above 216-225
                         "bbox" : poly_bbox,
                         "bbox_mode" : 0,
                     # "segmentation" : [poly]
@@ -758,16 +758,7 @@ def lesion_finder_gt(src_dir, out_dir, image_path, max_dim, annos_dir, use_tiff,
     return print(f"Finished processing {image_id}")
 
 
-def tissue_finder_gt(
-    src_dir: str,
-    out_dir: str,
-    image_path: str,
-    max_dim: int,
-    annos_dir: str,
-    use_tiff: bool,
-    is_human_labeled: bool,
-    valid_tissues=None
-):
+def tissue_finder_gt(src_dir: str, out_dir: str, image_path: str, max_dim: int, annos_dir: str, use_tiff: bool, is_human_labeled: bool, valid_tissues=None):
     if valid_tissues is None:
         valid_tissues = []
 
@@ -872,10 +863,6 @@ def tissue_finder_gt(
     # 3) Composite scale factor: base-level -> final displayed
     composite_scale_factor = level_scale_factor * resize_scale_factor
 
-<<<<<<< HEAD
-    print(tissue_boxes)
-=======
->>>>>>> b85a00e79f74eb5b3854b43e352cd1af18e45343
     # Scale bounding boxes
     scaled_tissue_annos = []
     for box in tissue_boxes:
@@ -890,11 +877,7 @@ def tissue_finder_gt(
 
             # Build annotation:
             scaled_tissue_annos.append({
-<<<<<<< HEAD
-                "id": k,
-=======
-                "id": 0,   # or anything appropriate
->>>>>>> b85a00e79f74eb5b3854b43e352cd1af18e45343
+                "label": k,
                 "bounding_box": [final_x1, final_y1, final_x2, final_y2],
                 "bbox_mode": 0,
             })
