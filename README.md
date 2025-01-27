@@ -42,7 +42,7 @@ Since unlabeled proposals are generated as boxes, only box annotations are suppo
 The detectron2 standard annotation dictionary format is followed. An additional "labeled" field is added to differentiate labeled vs. unlabeled.
 This field is useful since images with no labels of interest can still be labeled (i.e. the absence of labels does not imply the omission of labels).
 For example,
-
+```
 {
     "file_name": "/path/to/image.npy",
     "width": x,
@@ -62,7 +62,7 @@ For example,
         ...
     ]
 )
-
+```
 Where x, y are integers and z is True or False and annotations is a list of dicts.
 
 ## Training
