@@ -872,7 +872,10 @@ def tissue_finder_gt(
     # 3) Composite scale factor: base-level -> final displayed
     composite_scale_factor = level_scale_factor * resize_scale_factor
 
+<<<<<<< HEAD
     print(tissue_boxes)
+=======
+>>>>>>> b85a00e79f74eb5b3854b43e352cd1af18e45343
     # Scale bounding boxes
     scaled_tissue_annos = []
     for box in tissue_boxes:
@@ -887,7 +890,11 @@ def tissue_finder_gt(
 
             # Build annotation:
             scaled_tissue_annos.append({
+<<<<<<< HEAD
                 "id": k,
+=======
+                "id": 0,   # or anything appropriate
+>>>>>>> b85a00e79f74eb5b3854b43e352cd1af18e45343
                 "bounding_box": [final_x1, final_y1, final_x2, final_y2],
                 "bbox_mode": 0,
             })
